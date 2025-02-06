@@ -2,7 +2,14 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { Card } from '@/components/ui/card';
-import { Shield, Target, Zap, Skull, Gun, Star } from 'lucide-react';
+import { 
+  ShieldCheck as Shield, 
+  Target, 
+  Zap, 
+  Skull, 
+  Swords as Gun, 
+  Star 
+} from 'lucide-react';
 import { useGame } from '@/components/game-provider';
 import { toast } from 'sonner';
 
