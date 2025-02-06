@@ -1,7 +1,6 @@
-// RoomLobby.tsx
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { 
@@ -19,9 +18,12 @@ import {
   Trophy,
   Settings,
   Clock,
-  ChevronRight
+  ChevronRight,
+  AlertCircle,
+  Loader2
 } from 'lucide-react';
 import { useGame } from '@/components/game-provider';
+import { toast } from 'sonner';
 
 interface Agent {
   id: string;
@@ -73,6 +75,7 @@ const MAP_STRATEGIES = {
     { value: 'retake_setup', label: 'Retake Setup' }
   ]
 } as const;
+
 const STRATEGY_DESCRIPTIONS: Record<string, string> = {
   default: "Balanced setup with standard positions",
   rush_b: "Fast B execute with full team commitment",
@@ -88,6 +91,7 @@ const STRATEGY_DESCRIPTIONS: Record<string, string> = {
 
 const RoomLobby: React.FC<RoomLobbyProps> = ({ playerTeam, onStart }) => {
   const { controller } = useGame();
+  const [isLoading, setIsLoading] = useState(false);
   const [config, setConfig] = useState<GameConfig>({
     maxRounds: 24,
     startingSide: 't',
@@ -98,70 +102,88 @@ const RoomLobby: React.FC<RoomLobbyProps> = ({ playerTeam, onStart }) => {
   const [showTeamDetails, setShowTeamDetails] = useState(true);
   const [showStrategyDetails, setShowStrategyDetails] = useState(true);
 
-  const getTeamStrength = (team: Team): number => {
-    if (!team.agents.length) return 0;
+  const getTeamStrength = useCallback((team: Team): number => {
+    if (!team?.agents?.length) return 0;
 
-    const totalStats = team.agents.reduce((sum, agent) => (
-      sum + 
-      agent.stats.aim +
-      agent.stats.reaction +
-      agent.stats.positioning +
-      agent.stats.utility +
-      agent.stats.leadership +
-      agent.stats.clutch
-    ), 0);
+    try {
+      const totalStats = team.agents.reduce((sum, agent) => (
+        sum + 
+        (agent.stats?.aim || 0) +
+        (agent.stats?.reaction || 0) +
+        (agent.stats?.positioning || 0) +
+        (agent.stats?.utility || 0) +
+        (agent.stats?.leadership || 0) +
+        (agent.stats?.clutch || 0)
+      ), 0);
 
-    return totalStats / (team.agents.length * 6);
-  };
+      return totalStats / (team.agents.length * 6);
+    } catch (error) {
+      console.error('Error calculating team strength:', error);
+      return 0;
+    }
+  }, []);
 
-  const getDifficultyModifier = (difficulty: string): number => {
+  const getDifficultyModifier = useCallback((difficulty: string): number => {
     switch (difficulty) {
       case 'easy': return 0.8;
       case 'hard': return 1.2;
       default: return 1.0;
     }
-  };
+  }, []);
 
-  const generateBotTeam = (config: GameConfig) => {
-    const difficultyModifier = getDifficultyModifier(config.difficulty);
-    const botRoles = ['Entry Fragger', 'Support', 'In-Game Leader', 'Support', 'Entry Fragger'];
-    
-    return Array.from({ length: 5 }, (_, i) => ({
-      id: `bot-${i}`,
-      name: `Bot_${i + 1}`,
-      team: config.startingSide === 't' ? 'ct' : 't',
-      role: botRoles[i],
-      position: { x: 60, y: 180 },
-      health: 100,
-      armor: 0,
-      weapons: [config.startingSide === 't' ? 'glock' : 'usp'],
-      equipment: [],
-      isAlive: true,
-      stats: {
-        aim: 0.5 * difficultyModifier + Math.random() * 0.2,
-        reaction: 0.5 * difficultyModifier + Math.random() * 0.2,
-        positioning: 0.5 * difficultyModifier + Math.random() * 0.2,
-        utility: 0.5 * difficultyModifier + Math.random() * 0.2,
-        leadership: 0.5 * difficultyModifier + Math.random() * 0.2,
-        clutch: 0.5 * difficultyModifier + Math.random() * 0.2
-      },
-      matchStats: {
-        kills: 0,
-        deaths: 0,
-        assists: 0,
-        utilityDamage: 0,
-        flashAssists: 0
-      },
-      strategyStats: {
-        utilityUsage: 0,
-        positioningScore: 0,
-        strategyAdherence: 0,
-        impactRating: 0
-      }
-    }));
-  };
+  const generateBotTeam = useCallback((config: GameConfig) => {
+    try {
+      const difficultyModifier = getDifficultyModifier(config.difficulty);
+      const botRoles = ['Entry Fragger', 'Support', 'In-Game Leader', 'Support', 'Entry Fragger'];
+      
+      return Array.from({ length: 5 }, (_, i) => ({
+        id: `bot-${i}`,
+        name: `Bot_${i + 1}`,
+        team: config.startingSide === 't' ? 'ct' : 't',
+        role: botRoles[i],
+        position: { x: 60, y: 180 },
+        health: 100,
+        armor: 0,
+        weapons: [config.startingSide === 't' ? 'glock' : 'usp'],
+        equipment: [],
+        isAlive: true,
+        stats: {
+          aim: 0.5 * difficultyModifier + Math.random() * 0.2,
+          reaction: 0.5 * difficultyModifier + Math.random() * 0.2,
+          positioning: 0.5 * difficultyModifier + Math.random() * 0.2,
+          utility: 0.5 * difficultyModifier + Math.random() * 0.2,
+          leadership: 0.5 * difficultyModifier + Math.random() * 0.2,
+          clutch: 0.5 * difficultyModifier + Math.random() * 0.2
+        },
+        matchStats: {
+          kills: 0,
+          deaths: 0,
+          assists: 0,
+          utilityDamage: 0,
+          flashAssists: 0
+        },
+        strategyStats: {
+          utilityUsage: 0,
+          positioningScore: 0,
+          strategyAdherence: 0,
+          impactRating: 0
+        }
+      }));
+    } catch (error) {
+      console.error('Error generating bot team:', error);
+      toast.error('Failed to generate bot team');
+      return [];
+    }
+  }, [getDifficultyModifier]);
 
   const handleStartMatch = async () => {
+    if (!playerTeam?.agents?.length) {
+      toast.error('Invalid team composition');
+      return;
+    }
+
+    setIsLoading(true);
+
     try {
       const initializedPlayerTeam = playerTeam.agents.map(agent => ({
         ...agent,
@@ -189,6 +211,10 @@ const RoomLobby: React.FC<RoomLobbyProps> = ({ playerTeam, onStart }) => {
 
       const botTeam = generateBotTeam(config);
 
+      if (!botTeam.length) {
+        throw new Error('Failed to generate bot team');
+      }
+
       await controller.initializeMatch({
         playerTeam: initializedPlayerTeam,
         botTeam,
@@ -199,11 +225,16 @@ const RoomLobby: React.FC<RoomLobbyProps> = ({ playerTeam, onStart }) => {
         }
       });
 
+      toast.success('Match initialized successfully');
       onStart(config);
     } catch (error) {
       console.error('Error starting match:', error);
+      toast.error('Failed to start match');
+    } finally {
+      setIsLoading(false);
     }
   };
+
   const TeamDisplay = () => (
     <Card className="bg-gray-800 p-6 mb-4">
       <div 
@@ -305,6 +336,7 @@ const RoomLobby: React.FC<RoomLobbyProps> = ({ playerTeam, onStart }) => {
       )}
     </Card>
   );
+
   const MatchSetup = () => (
     <Card className="bg-gray-800 p-6">
       <div className="flex items-center gap-2 mb-4">
@@ -357,6 +389,20 @@ const RoomLobby: React.FC<RoomLobbyProps> = ({ playerTeam, onStart }) => {
     </Card>
   );
 
+  // Error State
+  if (!playerTeam || !playerTeam.agents) {
+    return (
+      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
+        <Card className="bg-gray-800 p-6">
+          <div className="flex items-center gap-2 text-red-500">
+            <AlertCircle className="w-6 h-6" />
+            <span>Invalid team data</span>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-900 text-white">
       <div className="p-4 max-w-4xl mx-auto">
@@ -365,9 +411,19 @@ const RoomLobby: React.FC<RoomLobbyProps> = ({ playerTeam, onStart }) => {
           <Button 
             onClick={handleStartMatch}
             className="bg-green-600 hover:bg-green-700"
+            disabled={isLoading}
           >
-            Start Match
-            <ChevronRight className="ml-2 w-4 h-4" />
+            {isLoading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Initializing...
+              </>
+            ) : (
+              <>
+                Start Match
+                <ChevronRight className="ml-2 w-4 h-4" />
+              </>
+            )}
           </Button>
         </div>
 

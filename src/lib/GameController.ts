@@ -1,9 +1,12 @@
+// src/lib/GameController.ts
+
 import CombatSystem from '@/lib/systems/CombatSystem';
 import MovementSystem from '@/lib/systems/MovementSystem';
 import RoundSystem from '@/lib/systems/RoundSystem';
 import BuySystem from '@/lib/systems/BuySystem';
 import AgentSystem from '@/lib/systems/AgentSystem';
 import Dust2TacticsSystem from '@/lib/systems/Dust2TacticsSystem';
+import { toast } from 'sonner';
 
 interface Position {
   x: number;
@@ -137,17 +140,33 @@ export default class GameController {
     tactics: Dust2TacticsSystem;
   };
 
-  constructor() {
-    this.systems = {
-      combat: new CombatSystem(),
-      movement: new MovementSystem(),
-      round: new RoundSystem(),
-      buy: new BuySystem(),
-      agent: new AgentSystem(),
-      tactics: new Dust2TacticsSystem()
-    };
+  private readonly ROUND_TIMES = {
+    freezetime: 15,
+    live: 115,
+    planted: 40
+  };
 
-    this.state = {
+  constructor() {
+    try {
+      this.systems = {
+        combat: new CombatSystem(),
+        movement: new MovementSystem(),
+        round: new RoundSystem(),
+        buy: new BuySystem(),
+        agent: new AgentSystem(),
+        tactics: new Dust2TacticsSystem()
+      };
+
+      this.state = this.createInitialState();
+    } catch (error) {
+      console.error('Error initializing GameController:', error);
+      toast.error('Failed to initialize game systems');
+      throw error;
+    }
+  }
+
+  private createInitialState(): GameState {
+    return {
       match: {
         id: '',
         status: 'pending',
@@ -197,9 +216,14 @@ export default class GameController {
     };
   }
 
-  public setState(newState: GameState): void {
-    this.state = newState;
-    this.notifyListeners();
+  public setState(newState: Partial<GameState>): void {
+    try {
+      this.state = { ...this.state, ...newState };
+      this.notifyListeners();
+    } catch (error) {
+      console.error('Error setting game state:', error);
+      toast.error('Failed to update game state');
+    }
   }
 
   public subscribe(listener: (state: GameState) => void): () => void {
@@ -210,7 +234,11 @@ export default class GameController {
   }
 
   private notifyListeners(): void {
-    this.listeners.forEach(listener => listener(this.state));
+    try {
+      this.listeners.forEach(listener => listener({ ...this.state }));
+    } catch (error) {
+      console.error('Error notifying listeners:', error);
+    }
   }
 
   public async initializeMatch(config: {
@@ -224,70 +252,131 @@ export default class GameController {
       matchId: string;
     };
   }): Promise<void> {
-    this.state.match.id = config.config.matchId;
-    this.state.match.status = 'active';
-    this.state.match.currentRound = 1;
-    this.state.match.maxRounds = config.config.maxRounds;
-    this.state.match.startTime = Date.now();
+    try {
+      if (!config.playerTeam?.length || !config.botTeam?.length) {
+        throw new Error('Invalid team configuration');
+      }
 
-    this.state.teams[config.config.startingSide].agents = config.playerTeam;
-    this.state.teams[config.config.startingSide === 't' ? 'ct' : 't'].agents = config.botTeam;
+      this.state.match.id = config.config.matchId;
+      this.state.match.status = 'active';
+      this.state.match.currentRound = 1;
+      this.state.match.maxRounds = config.config.maxRounds;
+      this.state.match.startTime = Date.now();
 
-    Object.values(this.systems).forEach(system => system.initialize(this.state));
-    this.notifyListeners();
+      this.state.teams[config.config.startingSide].agents = config.playerTeam;
+      this.state.teams[config.config.startingSide === 't' ? 'ct' : 't'].agents = config.botTeam;
+
+      Object.values(this.systems).forEach(system => system.initialize(this.state));
+      this.notifyListeners();
+
+      toast.success('Match initialized successfully');
+    } catch (error) {
+      console.error('Error initializing match:', error);
+      toast.error('Failed to initialize match');
+      throw error;
+    }
   }
 
   public startGameLoop(): void {
-    if (this.gameLoopInterval) clearInterval(this.gameLoopInterval);
-    this.gameLoopInterval = setInterval(() => this.update(1000/60), 1000/60);
+    try {
+      if (this.gameLoopInterval) clearInterval(this.gameLoopInterval);
+      this.gameLoopInterval = setInterval(() => this.update(1000/60), 1000/60);
+      toast.success('Game loop started');
+    } catch (error) {
+      console.error('Error starting game loop:', error);
+      toast.error('Failed to start game loop');
+    }
   }
 
   private update(deltaTime: number): void {
-    if (this.state.match.status !== 'active') return;
+    try {
+      if (this.state.match.status !== 'active') return;
 
-    if (this.state.round.timeLeft > 0) {
-      this.state.round.timeLeft -= deltaTime / 1000;
-      if (this.state.round.timeLeft <= 0) {
-        this.handlePhaseEnd();
-      }
-    }
-
-    ['t', 'ct'].forEach(side => {
-      const team = this.state.teams[side as 't' | 'ct'];
-      this.systems.movement.updatePositions(
-        team.agents,
-        this.state.round.phase,
-        deltaTime,
-        team.strategy,
-        this.state.round.activeCall
-      );
-    });
-
-    const now = Date.now();
-    if (now - this.lastCombatProcess >= 500) {
-      const combatResults = this.systems.combat.processCombatRound(
-        [...this.state.teams.t.agents, ...this.state.teams.ct.agents],
-        this.state,
-        { 
-          t: this.state.teams.t.strategy, 
-          ct: this.state.teams.ct.strategy 
+      if (this.state.round.timeLeft > 0) {
+        this.state.round.timeLeft -= deltaTime / 1000;
+        if (this.state.round.timeLeft <= 0) {
+          this.handlePhaseEnd();
         }
-      );
-
-      if (combatResults.length > 0) {
-        this.state.combatResult = combatResults[combatResults.length - 1];
       }
 
-      this.lastCombatProcess = now;
-    }
+      ['t', 'ct'].forEach(side => {
+        const team = this.state.teams[side as 't' | 'ct'];
+        this.systems.movement.updatePositions(
+          team.agents,
+          this.state.round.phase,
+          deltaTime,
+          team.strategy,
+          this.state.round.activeCall
+        );
+      });
 
-    this.notifyListeners();
+      const now = Date.now();
+      if (now - this.lastCombatProcess >= 500) {
+        const combatResults = this.systems.combat.processCombatRound(
+          [...this.state.teams.t.agents, ...this.state.teams.ct.agents],
+          this.state,
+          { 
+            t: this.state.teams.t.strategy, 
+            ct: this.state.teams.ct.strategy 
+          }
+        );
+
+        if (combatResults.length > 0) {
+          this.state.combatResult = combatResults[combatResults.length - 1];
+          this.handleCombatResult(this.state.combatResult);
+        }
+
+        this.lastCombatProcess = now;
+      }
+
+      this.notifyListeners();
+    } catch (error) {
+      console.error('Error in game update loop:', error);
+      this.pauseMatch();
+      toast.error('Game loop error detected');
+    }
+  }
+
+  private handleCombatResult(result: CombatResult): void {
+    try {
+      if (result.type === 'kill') {
+        const victim = this.findAgent(result.victim?.id || '');
+        const attacker = this.findAgent(result.attacker.id);
+        
+        if (victim && attacker) {
+          victim.isAlive = false;
+          attacker.matchStats.kills++;
+          victim.matchStats.deaths++;
+          
+          this.checkRoundEnd();
+        }
+      }
+    } catch (error) {
+      console.error('Error handling combat result:', error);
+    }
+  }
+
+  private checkRoundEnd(): void {
+    const tAlive = this.state.teams.t.agents.some(agent => agent.isAlive);
+    const ctAlive = this.state.teams.ct.agents.some(agent => agent.isAlive);
+
+    if (!tAlive && ctAlive) {
+      this.endRound('ct', 'All terrorists eliminated');
+    } else if (tAlive && !ctAlive) {
+      this.endRound('t', 'All counter-terrorists eliminated');
+    }
   }
 
   public updateStrategy(side: 't' | 'ct', strategy: string): void {
-    this.state.teams[side].strategy = strategy;
-    this.state.round.currentStrategy[side] = strategy;
-    this.notifyListeners();
+    try {
+      this.state.teams[side].strategy = strategy;
+      this.state.round.currentStrategy[side] = strategy;
+      this.notifyListeners();
+      toast.success(`Strategy updated for ${side.toUpperCase()} team`);
+    } catch (error) {
+      console.error('Error updating strategy:', error);
+      toast.error('Failed to update strategy');
+    }
   }
 
   public processBuy(side: 't' | 'ct', agentId: string, loadout: {
@@ -295,19 +384,34 @@ export default class GameController {
     equipment: string[];
     total: number;
   }): void {
-    const agent = this.findAgent(agentId);
-    if (!agent || this.state.teams[side].money < loadout.total) return;
+    try {
+      const agent = this.findAgent(agentId);
+      if (!agent || this.state.teams[side].money < loadout.total) {
+        toast.error('Invalid buy request');
+        return;
+      }
 
-    agent.weapons = loadout.weapons;
-    agent.equipment = loadout.equipment;
-    this.state.teams[side].money -= loadout.total;
-    
-    this.notifyListeners();
+      agent.weapons = loadout.weapons;
+      agent.equipment = loadout.equipment;
+      this.state.teams[side].money -= loadout.total;
+      
+      this.notifyListeners();
+      toast.success('Purchase successful');
+    } catch (error) {
+      console.error('Error processing buy:', error);
+      toast.error('Failed to process purchase');
+    }
   }
 
   public makeMidRoundCall(side: 't' | 'ct', call: string): void {
-    this.state.round.activeCall = call;
-    this.notifyListeners();
+    try {
+      this.state.round.activeCall = call;
+      this.notifyListeners();
+      toast.success(`Mid-round call: ${call}`);
+    } catch (error) {
+      console.error('Error making mid-round call:', error);
+      toast.error('Failed to make mid-round call');
+    }
   }
 
   private findAgent(id: string): Agent | undefined {
@@ -316,69 +420,145 @@ export default class GameController {
   }
 
   private handlePhaseEnd(): void {
-    switch (this.state.round.phase) {
-      case 'warmup':
-        this.state.round.phase = 'freezetime';
-        this.state.round.timeLeft = 15;
-        break;
-      case 'freezetime':
-        this.state.round.phase = 'live';
-        this.state.round.timeLeft = 115;
-        break;
-      case 'live':
-        if (!this.state.round.bombPlanted) {
-          this.endRound('ct', 'Time ran out');
-        }
-        break;
-      case 'planted':
-        this.endRound('t', 'Bomb detonated');
-        break;
-      case 'ended':
-        this.startNextRound();
-        break;
+    try {
+      switch (this.state.round.phase) {
+        case 'warmup':
+          this.state.round.phase = 'freezetime';
+          this.state.round.timeLeft = this.ROUND_TIMES.freezetime;
+          break;
+        case 'freezetime':
+          this.state.round.phase = 'live';
+          this.state.round.timeLeft = this.ROUND_TIMES.live;
+          break;
+        case 'live':
+          if (!this.state.round.bombPlanted) {
+            this.endRound('ct', 'Time ran out');
+          }
+          break;
+        case 'planted':
+          this.endRound('t', 'Bomb detonated');
+          break;
+        case 'ended':
+          this.startNextRound();
+          break;
+      }
+      this.notifyListeners();
+    } catch (error) {
+      console.error('Error handling phase end:', error);
+      toast.error('Error transitioning game phase');
     }
   }
 
   private endRound(winner: 't' | 'ct', reason: string): void {
-    this.state.round.phase = 'ended';
-    this.state.round.winner = winner;
-    this.state.round.endReason = reason;
-    this.state.match.score[winner]++;
-    this.notifyListeners();
+    try {
+      this.state.round.phase = 'ended';
+      this.state.round.winner = winner;
+      this.state.round.endReason = reason;
+      this.state.match.score[winner]++;
+
+      // Update team statistics
+      const winningTeam = this.state.teams[winner];
+      winningTeam.roundWins++;
+      winningTeam.money += 3250; // Win bonus
+      
+      const losingTeam = this.state.teams[winner === 't' ? 'ct' : 't'];
+      losingTeam.money += losingTeam.lossBonus;
+      losingTeam.lossBonus = Math.min(losingTeam.lossBonus + 500, 3400);
+
+      this.notifyListeners();
+      toast.success(`Round ended: ${reason}`);
+
+      if (this.checkMatchEnd()) {
+        this.endMatch();
+      }
+    } catch (error) {
+      console.error('Error ending round:', error);
+      toast.error('Failed to end round properly');
+    }
+  }
+
+  private checkMatchEnd(): boolean {
+    const { t, ct } = this.state.match.score;
+    const maxRounds = this.state.match.maxRounds;
+    return t > maxRounds / 2 || ct > maxRounds / 2 || this.state.match.currentRound >= maxRounds;
+  }
+
+  private endMatch(): void {
+    try {
+      const { t, ct } = this.state.match.score;
+      this.state.match.status = 'ended';
+      this.state.match.winner = t > ct ? 't' : 'ct';
+      this.state.match.endTime = Date.now();
+      this.stopGameLoop();
+      
+      this.notifyListeners();
+      toast.success(`Match ended! Winner: ${this.state.match.winner.toUpperCase()}`);
+    } catch (error) {
+      console.error('Error ending match:', error);
+      toast.error('Failed to end match properly');
+    }
   }
 
   private startNextRound(): void {
-    this.state.match.currentRound++;
-    this.state.round = {
-      phase: 'freezetime',
-      timeLeft: 15,
-      bombPlanted: false,
-      bombSite: null,
-      plantTime: null,
-      winner: null,
-      endReason: null,
-      currentStrategy: {
-        t: this.state.teams.t.strategy,
-        ct: this.state.teams.ct.strategy
-      },
-      activeCall: null
-    };
-    this.notifyListeners();
+    try {
+      this.state.match.currentRound++;
+      this.state.round = {
+        phase: 'freezetime',
+        timeLeft: this.ROUND_TIMES.freezetime,
+        bombPlanted: false,
+        bombSite: null,
+        plantTime: null,
+        winner: null,
+        endReason: null,
+        currentStrategy: {
+          t: this.state.teams.t.strategy,
+          ct: this.state.teams.ct.strategy
+        },
+        activeCall: null
+      };
+
+      // Reset agents for next round
+      ['t', 'ct'].forEach(side => {
+        this.state.teams[side as 't' | 'ct'].agents.forEach(agent => {
+          agent.isAlive = true;
+          agent.health = 100;
+          agent.armor = 0;
+        });
+      });
+
+      this.notifyListeners();
+      toast.success(`Round ${this.state.match.currentRound} starting`);
+    } catch (error) {
+      console.error('Error starting next round:', error);
+      toast.error('Failed to start next round');
+    }
   }
 
   public pauseMatch(): void {
-    this.state.match.status = 'paused';
-    if (this.gameLoopInterval) {
-      clearInterval(this.gameLoopInterval);
-      this.gameLoopInterval = null;
+    try {
+      this.state.match.status = 'paused';
+      if (this.gameLoopInterval) {
+        clearInterval(this.gameLoopInterval);
+        this.gameLoopInterval = null;
+      }
+      this.notifyListeners();
+      toast.info('Match paused');
+    } catch (error) {
+      console.error('Error pausing match:', error);
+      toast.error('Failed to pause match');
     }
-    this.notifyListeners();
   }
 
   public resumeMatch(): void {
-    this.state.match.status = 'active';
-    this.startGameLoop();
-    this.notifyListeners();
+    try {
+      this.state.match.status = 'active';
+      this.startGameLoop();
+      this.notifyListeners();
+      toast.success('Match resumed');
+    } catch (error) {
+      console.error('Error resuming match:', error);
+      toast.error('Failed to resume match');
+    }
   }
 
   public stopGameLoop(): void {
@@ -394,6 +574,6 @@ export default class GameController {
   }
 
   public getState(): GameState {
-    return this.state;
+    return { ...this.state };
   }
 }

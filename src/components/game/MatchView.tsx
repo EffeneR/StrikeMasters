@@ -384,14 +384,60 @@ const TeamSection: React.FC<{
 const MatchView: React.FC = () => {
   const { gameState, updateStrategy, makeMidRoundCall } = useGame();
   const [showBuyMenu, setShowBuyMenu] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (gameState.round.phase === 'freezetime') {
-      setShowBuyMenu(true);
-    } else {
-      setShowBuyMenu(false);
+    if (gameState) {
+      setIsLoading(false);
     }
-  }, [gameState.round.phase]);
+  }, [gameState]);
+
+  useEffect(() => {
+    if (!gameState || !gameState.round) {
+      console.warn('Game state not properly initialized');
+      return;
+    }
+
+    try {
+      if (gameState.round.phase === 'freezetime') {
+        setShowBuyMenu(true);
+      } else {
+        setShowBuyMenu(false);
+      }
+    } catch (error) {
+      console.error('Error handling game phase:', error);
+      toast.error('Error updating game state');
+    }
+  }, [gameState?.round?.phase]);
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="container mx-auto p-4">
+        <Card className="bg-gray-800 p-4">
+          <div className="text-center text-white">
+            Loading game state...
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  // Error state
+  if (!gameState || !gameState.round || !gameState.match || !gameState.teams) {
+    return (
+      <div className="container mx-auto p-4">
+        <Card className="bg-gray-800 p-4">
+          <div className="text-center text-red-500">
+            Error: Game state not properly initialized
+          </div>
+          <div className="text-center text-gray-400 mt-2">
+            Please try refreshing the page
+          </div>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto p-4 space-y-6">
@@ -408,8 +454,22 @@ const MatchView: React.FC = () => {
             currentStrategy={gameState.round.currentStrategy.t}
             currentCall={gameState.round.activeCall}
             strategyStats={gameState.teams.t.strategyStats}
-            onStrategyChange={(strategy) => updateStrategy('t', strategy)}
-            onMidRoundCall={makeMidRoundCall}
+            onStrategyChange={(strategy) => {
+              try {
+                updateStrategy('t', strategy);
+              } catch (error) {
+                console.error('Error updating T strategy:', error);
+                toast.error('Failed to update T strategy');
+              }
+            }}
+            onMidRoundCall={(call) => {
+              try {
+                makeMidRoundCall('t', call);
+              } catch (error) {
+                console.error('Error making T mid-round call:', error);
+                toast.error('Failed to make mid-round call');
+              }
+            }}
           />
           <TeamSection side="t" team={gameState.teams.t} />
         </div>
@@ -421,8 +481,22 @@ const MatchView: React.FC = () => {
             currentStrategy={gameState.round.currentStrategy.ct}
             currentCall={gameState.round.activeCall}
             strategyStats={gameState.teams.ct.strategyStats}
-            onStrategyChange={(strategy) => updateStrategy('ct', strategy)}
-            onMidRoundCall={makeMidRoundCall}
+            onStrategyChange={(strategy) => {
+              try {
+                updateStrategy('ct', strategy);
+              } catch (error) {
+                console.error('Error updating CT strategy:', error);
+                toast.error('Failed to update CT strategy');
+              }
+            }}
+            onMidRoundCall={(call) => {
+              try {
+                makeMidRoundCall('ct', call);
+              } catch (error) {
+                console.error('Error making CT mid-round call:', error);
+                toast.error('Failed to make mid-round call');
+              }
+            }}
           />
           <TeamSection side="ct" team={gameState.teams.ct} />
         </div>
@@ -430,7 +504,7 @@ const MatchView: React.FC = () => {
 
       {showBuyMenu && <BuyMenu />}
       
-      <GameRenderer gameState={gameState} />
+      {gameState && <GameRenderer gameState={gameState} />}
       
       {gameState.combatResult && (
         <CombatVisualizer result={gameState.combatResult} />
