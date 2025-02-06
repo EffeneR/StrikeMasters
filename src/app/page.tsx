@@ -7,64 +7,7 @@ import MatchView from '@/components/game/MatchView';
 import RoomLobby from '@/components/game/RoomLobby';
 import MatchFlow from '@/components/game/MatchFlow';
 import { Button } from '@/components/ui/button';
-
-interface GameConfig {
-  maxRounds: number;
-  startingSide: 't' | 'ct';
-  initialStrategy: string;
-  difficulty: 'easy' | 'medium' | 'hard';
-}
-
-interface Position {
-  x: number;
-  y: number;
-}
-
-interface AgentStats {
-  aim: number;
-  reaction: number;
-  positioning: number;
-  utility: number;
-  leadership: number;
-  clutch: number;
-}
-
-interface Agent {
-  id: string;
-  name: string;
-  team: 't' | 'ct';
-  role: string;
-  position: Position;
-  isAlive: boolean;
-  health: number;
-  armor: number;
-  weapons: string[];
-  equipment: string[];
-  stats: AgentStats;
-  matchStats: {
-    kills: number;
-    deaths: number;
-    assists: number;
-    utilityDamage: number;
-    flashAssists: number;
-  };
-  strategyStats: {
-    utilityUsage: number;
-    positioningScore: number;
-    strategyAdherence: number;
-    impactRating: number;
-  };
-}
-
-interface Team {
-  agents: Agent[];
-  strategy?: string;
-  strategyStats: {
-    roundsWonWithStrategy: { [key: string]: number };
-    strategySuccessRate: number;
-    lastSuccessfulStrategy: string;
-  };
-}
+import { GameConfig, Position, AgentStats, Agent, Team } from '@/types/game';
 
 const generateDefaultStats = (
   difficulty: number = 0.7,
@@ -112,8 +55,48 @@ const GameContent: React.FC = () => {
     setView('lobby');
   };
 
+  const generateBotTeam = (config: GameConfig): Agent[] => {
+    const botSide = config.startingSide === 't' ? 'ct' : 't';
+    const difficultyModifier = {
+      'easy': 0.7,
+      'medium': 0.85,
+      'hard': 1.0
+    }[config.difficulty] || 0.85;
+
+    const roles = ['Entry Fragger', 'Support', 'In-Game Leader', 'AWPer', 'Support'];
+    const names = ['Bot_Alpha', 'Bot_Bravo', 'Bot_Charlie', 'Bot_Delta', 'Bot_Echo'];
+
+    return Array.from({ length: 5 }, (_, i) => ({
+      id: `bot-${i}`,
+      name: names[i],
+      team: botSide,
+      role: roles[i],
+      position: { x: botSide === 'ct' ? 230 : 60, y: 170 },
+      health: 100,
+      armor: 0,
+      weapons: [botSide === 't' ? 'glock' : 'usp'],
+      equipment: [],
+      isAlive: true,
+      stats: generateDefaultStats(difficultyModifier, roles[i]),
+      matchStats: {
+        kills: 0,
+        deaths: 0,
+        assists: 0,
+        utilityDamage: 0,
+        flashAssists: 0
+      },
+      strategyStats: {
+        utilityUsage: 0,
+        positioningScore: 0,
+        strategyAdherence: 0,
+        impactRating: 0
+      }
+    }));
+  };
+
   const handleMatchStart = async (config: GameConfig) => {
     if (!selectedTeam) return;
+
     try {
       const botTeam = generateBotTeam(config);
       const playerTeam = selectedTeam.agents.map(agent => ({
@@ -187,45 +170,6 @@ const GameContent: React.FC = () => {
     } catch (error) {
       console.error('Failed to initialize match:', error);
     }
-  };
-
-  const generateBotTeam = (config: GameConfig): Agent[] => {
-    const botSide = config.startingSide === 't' ? 'ct' : 't';
-    const difficultyModifier = {
-      'easy': 0.7,
-      'medium': 0.85,
-      'hard': 1.0
-    }[config.difficulty] || 0.85;
-
-    const roles = ['Entry Fragger', 'Support', 'In-Game Leader', 'AWPer', 'Support'];
-    const names = ['Bot_Alpha', 'Bot_Bravo', 'Bot_Charlie', 'Bot_Delta', 'Bot_Echo'];
-
-    return Array.from({ length: 5 }, (_, i) => ({
-      id: `bot-${i}`,
-      name: names[i],
-      team: botSide,
-      role: roles[i],
-      position: { x: botSide === 'ct' ? 230 : 60, y: 170 },
-      health: 100,
-      armor: 0,
-      weapons: [botSide === 't' ? 'glock' : 'usp'],
-      equipment: [],
-      isAlive: true,
-      stats: generateDefaultStats(difficultyModifier, roles[i]),
-      matchStats: {
-        kills: 0,
-        deaths: 0,
-        assists: 0,
-        utilityDamage: 0,
-        flashAssists: 0
-      },
-      strategyStats: {
-        utilityUsage: 0,
-        positioningScore: 0,
-        strategyAdherence: 0,
-        impactRating: 0
-      }
-    }));
   };
 
   const renderMatchView = () => {
@@ -306,12 +250,10 @@ const GameContent: React.FC = () => {
   );
 };
 
-const Home: React.FC = () => {
-  return (
-    <GameProvider>
-      <GameContent />
-    </GameProvider>
-  );
-};
+const Home: React.FC = () => (
+  <GameProvider>
+    <GameContent />
+  </GameProvider>
+);
 
 export default Home;
