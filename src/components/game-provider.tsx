@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
 import GameController from '@/lib/GameController';
 
-// Core Interfaces
+// Core Interfaces remain the same
 interface Position {
   x: number;
   y: number;
@@ -107,7 +107,7 @@ interface GameContextType {
       playerTeam: Agent[],
       botTeam: Agent[],
       config: GameConfig
-    }) => void;
+    }) => Promise<void>;
     updateStrategy: (side: 't' | 'ct', strategy: string) => void;
     processBuy: (side: 't' | 'ct', agentId: string, loadout: {
       weapons: string[];
@@ -116,6 +116,63 @@ interface GameContextType {
     }) => void;
   };
 }
+
+const defaultGameState: GameState = {
+  match: {
+    id: '',
+    status: 'pending',
+    currentRound: 1,
+    maxRounds: 30,
+    score: { t: 0, ct: 0 },
+    winner: null,
+    startTime: null,
+    endTime: null
+  },
+  round: {
+    phase: 'warmup',
+    timeLeft: 15,
+    bombPlanted: false,
+    bombSite: null,
+    plantTime: null,
+    winner: null,
+    endReason: null,
+    currentStrategy: {
+      t: 'default',
+      ct: 'default'
+    },
+    activeCall: null
+  },
+  teams: {
+    t: {
+      money: 800,
+      roundWins: 0,
+      lossBonus: 1400,
+      timeoutAvailable: true,
+      strategy: 'default',
+      agents: [],
+      strategyStats: {
+        roundsWonWithStrategy: {},
+        strategySuccessRate: 0,
+        lastSuccessfulStrategy: ''
+      }
+    },
+    ct: {
+      money: 800,
+      roundWins: 0,
+      lossBonus: 1400,
+      timeoutAvailable: true,
+      strategy: 'default',
+      agents: [],
+      strategyStats: {
+        roundsWonWithStrategy: {},
+        strategySuccessRate: 0,
+        lastSuccessfulStrategy: ''
+      }
+    }
+  },
+  events: [],
+  combatResult: null
+};
 
 const GameContext = createContext<GameContextType | null>(null);
 
@@ -129,16 +186,14 @@ export const GameProvider: React.FC<GameProviderProps> = ({
   initialState 
 }) => {
   const [controller] = useState(() => new GameController());
-  const [gameState, setGameState] = useState<GameState | null>(null);
+  const [gameState, setGameState] = useState<GameState>(() => ({
+    ...defaultGameState,
+    ...initialState
+  }));
 
   useEffect(() => {
-    if (initialState) {
-      try {
-        controller.setState(initialState);
-      } catch (error) {
-        console.error('Failed to set initial state:', error);
-      }
-    }
+    // Initialize controller with default state
+    controller.setState(gameState);
 
     const unsubscribe = controller.subscribe((newState: GameState) => {
       setGameState((prevState) => {
@@ -149,11 +204,16 @@ export const GameProvider: React.FC<GameProviderProps> = ({
       });
     });
 
+    // Start game loop immediately if there's initial state
+    if (initialState) {
+      controller.startGameLoop();
+    }
+
     return () => {
+      controller.stopGameLoop();
       unsubscribe();
-      controller?.stopGameLoop();
     };
-  }, [controller, initialState]);
+  }, [controller]);
 
   const startMatch = useCallback(async (config: {
     playerTeam: Agent[],
@@ -171,16 +231,18 @@ export const GameProvider: React.FC<GameProviderProps> = ({
 
   const updateStrategy = useCallback((side: 't' | 'ct', strategy: string) => {
     try {
-      if (gameState?.teams[side]) {
-        controller.updateStrategy(side, strategy);
-      }
+      controller.updateStrategy(side, strategy);
     } catch (error) {
       console.error('Failed to update strategy:', error);
       throw new Error('Strategy update failed');
     }
-  }, [controller, gameState]);
+  }, [controller]);
 
-  const processBuy = useCallback((side: 't' | 'ct', agentId: string, loadout: any) => {
+  const processBuy = useCallback((side: 't' | 'ct', agentId: string, loadout: {
+    weapons: string[];
+    equipment: string[];
+    total: number;
+  }) => {
     try {
       controller.processBuy(side, agentId, loadout);
     } catch (error) {
@@ -214,14 +276,14 @@ export function useGame(): GameContextType {
   return context;
 }
 
-export function useGameState<T>(selector: (state: GameState) => T): T | null {
+export function useGameState<T>(selector: (state: GameState) => T): T {
   const { state } = useGame();
-  if (!state) return null;
+  if (!state) throw new Error('Game state is not initialized');
   try {
     return selector(state);
   } catch (error) {
     console.error('Error in selector:', error);
-    return null;
+    throw error;
   }
 }
 
