@@ -123,6 +123,7 @@ const STRATEGY_DESCRIPTIONS = {
   fake_a_b: "Fake presence at A before B execute",
   eco_rush: "Economic round with rushed strategy"
 } as const;
+
 // Utility Components
 const TeamScore: React.FC<{
   score?: { t?: number; ct?: number };
@@ -291,7 +292,7 @@ const StrategyPanel: React.FC<{
     </Card>
   );
 };
-// Agent Performance Card Component
+
 const AgentPerformanceCard: React.FC<{
   agent: Agent;
 }> = ({ agent }) => {
@@ -356,7 +357,6 @@ const AgentPerformanceCard: React.FC<{
   );
 };
 
-// Team Section Component
 const TeamSection: React.FC<{
   side: 't' | 'ct';
   team: Team;
@@ -381,7 +381,6 @@ const TeamSection: React.FC<{
   );
 };
 
-// Main Match View Component
 const MatchView: React.FC = () => {
   const { gameState, updateStrategy, makeMidRoundCall } = useGame();
   const [showBuyMenu, setShowBuyMenu] = useState(false);

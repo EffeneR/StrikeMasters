@@ -3,7 +3,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
 import GameController from '@/lib/GameController';
 
-// Core Interfaces remain the same
 interface Position {
   x: number;
   y: number;
@@ -99,24 +98,6 @@ interface GameConfig {
   difficulty: string;
 }
 
-interface GameContextType {
-  state: GameState | null;
-  controller: GameController;
-  actions: {
-    startMatch: (config: {
-      playerTeam: Agent[],
-      botTeam: Agent[],
-      config: GameConfig
-    }) => Promise<void>;
-    updateStrategy: (side: 't' | 'ct', strategy: string) => void;
-    processBuy: (side: 't' | 'ct', agentId: string, loadout: {
-      weapons: string[];
-      equipment: string[];
-      total: number;
-    }) => void;
-  };
-}
-
 const defaultGameState: GameState = {
   match: {
     id: '',
@@ -174,6 +155,29 @@ const defaultGameState: GameState = {
   combatResult: null
 };
 
+interface GameContextType {
+  state: GameState | null;
+  controller: GameController;
+  actions: {
+    startMatch: (config: {
+      playerTeam: Agent[],
+      botTeam: Agent[],
+      config: GameConfig
+    }) => Promise<void>;
+    updateStrategy: (side: 't' | 'ct', strategy: string) => void;
+    processBuy: (side: 't' | 'ct', agentId: string, loadout: {
+      weapons: string[];
+      equipment: string[];
+      total: number;
+    }) => void;
+    makeMidRoundCall: (side: 't' | 'ct', call: string) => void;
+    pauseMatch: () => void;
+    resumeMatch: () => void;
+    endMatch: () => void;
+    clearCombatResult: () => void;
+  };
+}
+
 const GameContext = createContext<GameContextType | null>(null);
 
 interface GameProviderProps {
@@ -192,7 +196,6 @@ export const GameProvider: React.FC<GameProviderProps> = ({
   }));
 
   useEffect(() => {
-    // Initialize controller with default state
     controller.setState(gameState);
 
     const unsubscribe = controller.subscribe((newState: GameState) => {
@@ -204,7 +207,6 @@ export const GameProvider: React.FC<GameProviderProps> = ({
       });
     });
 
-    // Start game loop immediately if there's initial state
     if (initialState) {
       controller.startGameLoop();
     }
@@ -213,7 +215,7 @@ export const GameProvider: React.FC<GameProviderProps> = ({
       controller.stopGameLoop();
       unsubscribe();
     };
-  }, [controller]);
+  }, [controller, initialState]);
 
   const startMatch = useCallback(async (config: {
     playerTeam: Agent[],
@@ -251,15 +253,76 @@ export const GameProvider: React.FC<GameProviderProps> = ({
     }
   }, [controller]);
 
+  const makeMidRoundCall = useCallback((side: 't' | 'ct', call: string) => {
+    try {
+      controller.makeMidRoundCall(side, call);
+    } catch (error) {
+      console.error('Failed to make mid-round call:', error);
+      throw new Error('Mid-round call failed');
+    }
+  }, [controller]);
+
+  const pauseMatch = useCallback(() => {
+    try {
+      controller.pauseMatch();
+    } catch (error) {
+      console.error('Failed to pause match:', error);
+      throw new Error('Match pause failed');
+    }
+  }, [controller]);
+
+  const resumeMatch = useCallback(() => {
+    try {
+      controller.resumeMatch();
+    } catch (error) {
+      console.error('Failed to resume match:', error);
+      throw new Error('Match resume failed');
+    }
+  }, [controller]);
+
+  const endMatch = useCallback(() => {
+    try {
+      controller.endMatch();
+    } catch (error) {
+      console.error('Failed to end match:', error);
+      throw new Error('Match end failed');
+    }
+  }, [controller]);
+
+  const clearCombatResult = useCallback(() => {
+    try {
+      controller.clearCombatResult();
+    } catch (error) {
+      console.error('Failed to clear combat result:', error);
+      throw new Error('Clear combat result failed');
+    }
+  }, [controller]);
+
   const value = useMemo<GameContextType>(() => ({
     state: gameState,
     controller,
     actions: {
       startMatch,
       updateStrategy,
-      processBuy
+      processBuy,
+      makeMidRoundCall,
+      pauseMatch,
+      resumeMatch,
+      endMatch,
+      clearCombatResult
     }
-  }), [gameState, controller, startMatch, updateStrategy, processBuy]);
+  }), [
+    gameState,
+    controller,
+    startMatch,
+    updateStrategy,
+    processBuy,
+    makeMidRoundCall,
+    pauseMatch,
+    resumeMatch,
+    endMatch,
+    clearCombatResult
+  ]);
 
   return (
     <GameContext.Provider value={value}>
@@ -279,18 +342,13 @@ export function useGame(): GameContextType {
 export function useGameState<T>(selector: (state: GameState) => T): T {
   const { state } = useGame();
   if (!state) throw new Error('Game state is not initialized');
-  try {
-    return selector(state);
-  } catch (error) {
-    console.error('Error in selector:', error);
-    throw error;
-  }
+  return selector(state);
 }
 
 export function isValidGameState(state: any): state is GameState {
   if (!state || typeof state !== 'object') return false;
   
-  const requiredKeys = ['match', 'round', 'teams'];
+  const requiredKeys = ['match', 'round', 'teams', 'events'];
   return requiredKeys.every(key => key in state);
 }
 

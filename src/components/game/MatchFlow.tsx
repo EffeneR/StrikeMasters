@@ -1,11 +1,10 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Swords, Timer, Trophy, AlertCircle } from 'lucide-react';
 
-// Type definitions
 interface Agent {
   id: string;
   name: string;
@@ -61,7 +60,6 @@ interface MatchFlowProps {
   onMidRoundCall: (team: 't' | 'ct', call: string) => void;
 }
 
-// Constants
 const PHASE_MESSAGES: Record<string, string> = {
   warmup: "Prepare for the round",
   freezetime: "Buy phase - Select your strategy",
@@ -79,21 +77,33 @@ const STRATEGY_DESCRIPTIONS: Record<string, string> = {
   eco_rush: "Economic round with rushed strategy"
 };
 
-// Default state for error handling
 const DEFAULT_MATCH_STATE: MatchState = {
   phase: 'warmup',
   round: 1,
   score: { t: 0, ct: 0 },
   timeLeft: 0,
   teams: {
-    t: { agents: [], strategyStats: { roundsWonWithStrategy: {}, strategySuccessRate: 0, lastSuccessfulStrategy: '' }},
-    ct: { agents: [], strategyStats: { roundsWonWithStrategy: {}, strategySuccessRate: 0, lastSuccessfulStrategy: '' }}
+    t: { 
+      agents: [], 
+      strategyStats: { 
+        roundsWonWithStrategy: {}, 
+        strategySuccessRate: 0, 
+        lastSuccessfulStrategy: '' 
+      }
+    },
+    ct: { 
+      agents: [], 
+      strategyStats: { 
+        roundsWonWithStrategy: {}, 
+        strategySuccessRate: 0, 
+        lastSuccessfulStrategy: '' 
+      }
+    }
   },
   currentStrategy: { t: 'default', ct: 'default' },
   activeCall: null
 };
 
-// Component definitions
 const PhaseIndicator: React.FC<{ phase: string; timeLeft: number }> = ({ 
   phase, 
   timeLeft 
@@ -166,6 +176,39 @@ const StrategyOverview: React.FC<{
         </div>
       </div>
 
+      {phase === 'freezetime' && onStrategyChange && (
+        <div className="grid grid-cols-2 gap-2">
+          <Button
+            size="sm"
+            onClick={() => onStrategyChange('default')}
+            variant={strategy === 'default' ? 'default' : 'outline'}
+          >
+            Default
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => onStrategyChange('rush_b')}
+            variant={strategy === 'rush_b' ? 'default' : 'outline'}
+          >
+            Rush B
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => onStrategyChange('split_a')}
+            variant={strategy === 'split_a' ? 'default' : 'outline'}
+          >
+            Split A
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => onStrategyChange('mid_control')}
+            variant={strategy === 'mid_control' ? 'default' : 'outline'}
+          >
+            Mid Control
+          </Button>
+        </div>
+      )}
+
       {phase === 'live' && onMidRoundCall && (
         <div className="grid grid-cols-2 gap-2">
           <Button
@@ -222,68 +265,106 @@ const StrategyOverview: React.FC<{
 );
 
 const MatchFlow: React.FC<MatchFlowProps> = ({
-  matchState = DEFAULT_MATCH_STATE,
+  matchState,
   onPhaseEnd,
   onTimeUpdate,
   onStrategyChange,
   onMidRoundCall
 }) => {
-  // Error handling
-  if (!matchState || !matchState.teams) {
-    return (
-      <div className="p-4 text-center">
-        <p className="text-red-500">Error: Invalid match state</p>
-      </div>
-    );
-  }
+  const safeMatchState = useMemo(() => {
+    if (!matchState || !matchState.teams || !matchState.score) {
+      console.warn('Invalid match state detected, using default state');
+      return DEFAULT_MATCH_STATE;
+    }
 
-  // Timer effect with cleanup
+    return {
+      ...DEFAULT_MATCH_STATE,
+      ...matchState,
+      score: {
+        t: matchState.score?.t ?? 0,
+        ct: matchState.score?.ct ?? 0
+      },
+      teams: {
+        t: {
+          ...DEFAULT_MATCH_STATE.teams.t,
+          ...matchState.teams.t,
+          strategyStats: {
+            ...DEFAULT_MATCH_STATE.teams.t.strategyStats,
+            ...matchState.teams.t?.strategyStats
+          }
+        },
+        ct: {
+          ...DEFAULT_MATCH_STATE.teams.ct,
+          ...matchState.teams.ct,
+          strategyStats: {
+            ...DEFAULT_MATCH_STATE.teams.ct.strategyStats,
+            ...matchState.teams.ct?.strategyStats
+          }
+        }
+      },
+      currentStrategy: {
+        t: matchState.currentStrategy?.t ?? 'default',
+        ct: matchState.currentStrategy?.ct ?? 'default'
+      }
+    };
+  }, [matchState]);
+
   useEffect(() => {
     const timer = setInterval(() => {
       if (typeof onTimeUpdate === 'function') {
         onTimeUpdate();
       }
-      if (matchState.timeLeft <= 0 && typeof onPhaseEnd === 'function') {
+      if (safeMatchState.timeLeft <= 0 && typeof onPhaseEnd === 'function') {
         onPhaseEnd();
       }
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [matchState.timeLeft, onPhaseEnd, onTimeUpdate]);
+  }, [safeMatchState.timeLeft, onPhaseEnd, onTimeUpdate]);
 
   return (
     <div className="max-w-4xl mx-auto p-4">
       <PhaseIndicator 
-        phase={matchState.phase} 
-        timeLeft={matchState.timeLeft} 
+        phase={safeMatchState.phase} 
+        timeLeft={safeMatchState.timeLeft} 
       />
 
       <TeamScore 
-        score={matchState.score} 
-        round={matchState.round} 
+        score={safeMatchState.score} 
+        round={safeMatchState.round} 
       />
 
       <div className="grid md:grid-cols-2 gap-4">
         <StrategyOverview
-          team={matchState.teams.t}
-          strategy={matchState.currentStrategy.t}
-          phase={matchState.phase}
+          team={safeMatchState.teams.t}
+          strategy={safeMatchState.currentStrategy.t}
+          phase={safeMatchState.phase}
           onStrategyChange={
-            matchState.phase === 'freezetime' 
+            safeMatchState.phase === 'freezetime' 
               ? (strategy) => onStrategyChange('t', strategy)
               : undefined
           }
           onMidRoundCall={
-            matchState.phase === 'live'
+            safeMatchState.phase === 'live'
               ? (call) => onMidRoundCall('t', call)
               : undefined
           }
         />
 
         <StrategyOverview
-          team={matchState.teams.ct}
-          strategy={matchState.currentStrategy.ct}
-          phase={matchState.phase}
+          team={safeMatchState.teams.ct}
+          strategy={safeMatchState.currentStrategy.ct}
+          phase={safeMatchState.phase}
+          onStrategyChange={
+            safeMatchState.phase === 'freezetime' 
+              ? (strategy) => onStrategyChange('ct', strategy)
+              : undefined
+          }
+          onMidRoundCall={
+            safeMatchState.phase === 'live'
+              ? (call) => onMidRoundCall('ct', call)
+              : undefined
+          }
         />
       </div>
     </div>
