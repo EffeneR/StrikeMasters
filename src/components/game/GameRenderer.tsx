@@ -2,6 +2,8 @@
 
 import React, { useEffect, useState } from 'react';
 import { Card } from '@/components/ui/card';
+import { useGame } from '@/components/game-provider';
+import { toast } from 'sonner';
 
 // Map constants
 const MAP_POSITIONS = {
@@ -58,25 +60,26 @@ interface Agent {
   role: string;
   weapons?: string[];
   equipment?: string[];
+  health?: number;
+  armor?: number;
 }
 
 interface GameEvent {
   type: 'flash' | 'smoke' | 'fire' | 'kill' | 'utility';
   position: Position;
   subType?: string;
+  timestamp?: number;
 }
 
-interface GameRendererProps {
-  agents: Agent[];
-  events: GameEvent[];
-  strategy?: string;
-  phase?: string;
-  currentCall?: string | null;
-}
 const AgentDot: React.FC<{ agent: Agent }> = ({ agent }) => {
-  const position = agent.position || { x: 0, y: 0 };
+  const position = agent.position || MAP_POSITIONS[`${agent.team}_spawn`];
   const color = agent.team === 't' ? '#ff4444' : '#4444ff';
   const glowColor = agent.team === 't' ? 'rgba(255,68,68,0.3)' : 'rgba(68,68,255,0.3)';
+  
+  // Health indicator color
+  const healthColor = agent.health && agent.health > 0 
+    ? `hsl(${agent.health}, 100%, 50%)`
+    : '#666';
   
   return (
     <g 
@@ -84,6 +87,38 @@ const AgentDot: React.FC<{ agent: Agent }> = ({ agent }) => {
       className="transition-all duration-300"
       filter="url(#glow)"
     >
+      {/* Health/Armor indicator */}
+      {agent.isAlive && (
+        <g className="health-indicator">
+          <rect
+            x="-10"
+            y="8"
+            width="20"
+            height="3"
+            fill="#333"
+            rx="1"
+          />
+          <rect
+            x="-10"
+            y="8"
+            width={`${(agent.health || 100) / 5}`}
+            height="3"
+            fill={healthColor}
+            rx="1"
+          />
+          {agent.armor && agent.armor > 0 && (
+            <rect
+              x="-10"
+              y="12"
+              width={`${agent.armor / 5}`}
+              height="2"
+              fill="#4444ff"
+              rx="1"
+            />
+          )}
+        </g>
+      )}
+      
       {/* Position indicator */}
       <circle
         r="15"
@@ -166,12 +201,25 @@ const MapLayout: React.FC = () => (
   </g>
 );
 
-const EventEffect: React.FC<{ event: GameEvent; index: number }> = ({ event, index }) => {
+const EventEffect: React.FC<{ event: GameEvent }> = ({ event }) => {
+  const [isVisible, setIsVisible] = useState(true);
+
+  useEffect(() => {
+    if (event.timestamp) {
+      const timeoutId = setTimeout(() => {
+        setIsVisible(false);
+      }, event.type === 'smoke' ? 15000 : 5000);
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [event]);
+
+  if (!isVisible) return null;
+
   switch (event.type) {
     case 'flash':
       return (
         <circle
-          key={index}
           cx={event.position.x}
           cy={event.position.y}
           r="15"
@@ -191,7 +239,6 @@ const EventEffect: React.FC<{ event: GameEvent; index: number }> = ({ event, ind
     case 'smoke':
       return (
         <circle
-          key={index}
           cx={event.position.x}
           cy={event.position.y}
           r="20"
@@ -209,7 +256,6 @@ const EventEffect: React.FC<{ event: GameEvent; index: number }> = ({ event, ind
     case 'fire':
       return (
         <circle
-          key={index}
           cx={event.position.x}
           cy={event.position.y}
           r="15"
@@ -224,10 +270,50 @@ const EventEffect: React.FC<{ event: GameEvent; index: number }> = ({ event, ind
           />
         </circle>
       );
+    case 'kill':
+      return (
+        <g>
+          <circle
+            cx={event.position.x}
+            cy={event.position.y}
+            r="10"
+            fill="none"
+            stroke="#ff0000"
+            strokeWidth="2"
+            opacity="0.8"
+          >
+            <animate
+              attributeName="r"
+              from="5"
+              to="15"
+              dur="1s"
+              fill="freeze"
+            />
+            <animate
+              attributeName="opacity"
+              from="0.8"
+              to="0"
+              dur="1s"
+              fill="freeze"
+            />
+          </circle>
+          <text
+            x={event.position.x}
+            y={event.position.y - 20}
+            textAnchor="middle"
+            fill="#ff0000"
+            fontSize="14"
+            opacity="0.8"
+          >
+            ☠
+          </text>
+        </g>
+      );
     default:
       return null;
   }
 };
+
 const getRoleColor = (role: string): string => {
   switch (role) {
     case 'Entry Fragger': return '#ff4444';
@@ -255,59 +341,40 @@ const getStrategyZones = (strategy: string) => {
   }
 };
 
-const getCallIndicators = (call: string, agents: Agent[]) => {
-  switch (call) {
-    case 'rotate_a':
-      return [{
-        path: "M 150,150 Q 180,120 220,80",
-        point: { x: 220, y: 80 }
-      }];
-    case 'rotate_b':
-      return [{
-        path: "M 150,150 Q 100,180 70,220",
-        point: { x: 70, y: 220 }
-      }];
-    case 'hold_positions':
-      return agents
-        .filter(a => a.isAlive && a.team === 't')
-        .map(a => ({
-          path: "",
-          point: a.position
-        }));
-    default:
-      return [];
-  }
-};
-
-const GameRenderer: React.FC<GameRendererProps> = ({ 
-  agents = [], 
-  events = [], 
-  strategy = 'default', 
-  phase = 'setup',
-  currentCall = null
-}) => {
+const GameRenderer: React.FC = () => {
+  const { gameState } = useGame();
   const [positions, setPositions] = useState<Record<string, Position>>({});
   const [tacticalLines, setTacticalLines] = useState<string[]>([]);
 
   useEffect(() => {
-    const newPositions: Record<string, Position> = {};
-    agents.forEach((agent) => {
-      if (agent.position) {
-        newPositions[agent.id] = agent.position;
-      }
-    });
-    setPositions(newPositions);
-  }, [agents]);
+    try {
+      const newPositions: Record<string, Position> = {};
+      gameState.agents.forEach((agent) => {
+        if (agent.position) {
+          newPositions[agent.id] = agent.position;
+        }
+      });
+      setPositions(newPositions);
+    } catch (error) {
+      console.error('Error updating positions:', error);
+      toast.error('Failed to update agent positions');
+    }
+  }, [gameState.agents]);
 
   useEffect(() => {
-    const lines: string[] = [];
-    if (phase === 'freezetime' || phase === 'live') {
-      if (strategy in MAP_PATHS) {
-        lines.push(MAP_PATHS[strategy as keyof typeof MAP_PATHS]);
+    try {
+      const lines: string[] = [];
+      if (gameState.phase === 'freezetime' || gameState.phase === 'live') {
+        if (gameState.currentStrategy in MAP_PATHS) {
+          lines.push(MAP_PATHS[gameState.currentStrategy as keyof typeof MAP_PATHS]);
+        }
       }
+      setTacticalLines(lines);
+    } catch (error) {
+      console.error('Error updating tactical lines:', error);
+      toast.error('Failed to update tactical lines');
     }
-    setTacticalLines(lines);
-  }, [strategy, phase]);
+  }, [gameState.currentStrategy, gameState.phase]);
 
   return (
     <Card className="w-full aspect-square bg-gray-900 p-4">
@@ -349,9 +416,9 @@ const GameRenderer: React.FC<GameRendererProps> = ({
         ))}
 
         {/* Strategy Zones */}
-        {phase === 'live' && strategy !== 'default' && (
+        {gameState.phase === 'live' && gameState.currentStrategy !== 'default' && (
           <g className="strategy-zones">
-            {getStrategyZones(strategy).map((zone, i) => (
+            {getStrategyZones(gameState.currentStrategy).map((zone, i) => (
               <circle
                 key={`zone-${i}`}
                 cx={zone.x}
@@ -366,55 +433,31 @@ const GameRenderer: React.FC<GameRendererProps> = ({
         )}
 
         {/* Events */}
-        {events.map((event, i) => (
-          <EventEffect key={`event-${i}`} event={event} index={i} />
+        {gameState.events.map((event, i) => (
+          <EventEffect key={`event-${i}`} event={event} />
         ))}
 
         {/* Agents */}
-        {agents.map((agent) => (
+        {gameState.agents.map((agent) => (
           <AgentDot key={agent.id} agent={agent} />
         ))}
 
-        {/* Call Indicators */}
-        {currentCall && (
-          <g className="call-indicators">
-            {getCallIndicators(currentCall, agents).map((indicator, i) => (
-              <g key={`call-${i}`}>
-                {indicator.path && (
-                  <path
-                    d={indicator.path}
-                    stroke="#00ff00"
-                    strokeWidth="2"
-                    fill="none"
-                    opacity="0.5"
-                    strokeDasharray="5,5"
-                  >
-                    <animate
-                      attributeName="strokeDashoffset"
-                      from="10"
-                      to="0"
-                      dur="1s"
-                      repeatCount="indefinite"
-                    />
-                  </path>
-                )}
-                {indicator.point && (
-                  <circle
-                    cx={indicator.point.x}
-                    cy={indicator.point.y}
-                    r="5"
-                    fill="#00ff00"
-                    opacity="0.5"
-                    className="animate-ping"
-                  />
-                )}
-              </g>
-            ))}
-          </g>
+        {/* Round Timer */}
+        {gameState.phase !== 'ended' && (
+          <text
+            x="150"
+            y="40"
+            textAnchor="middle"
+            fill="#fff"
+            fontSize="20"
+            className="font-bold"
+          >
+            {Math.floor(gameState.roundTime / 60)}:{(gameState.roundTime % 60).toString().padStart(2, '0')}
+          </text>
         )}
 
         {/* Strategy Label */}
-        {phase === 'freezetime' && strategy !== 'default' && (
+        {gameState.phase === 'freezetime' && gameState.currentStrategy !== 'default' && (
           <text
             x="150"
             y="20"
@@ -423,7 +466,7 @@ const GameRenderer: React.FC<GameRendererProps> = ({
             fontSize="14"
             className="font-bold"
           >
-            {strategy.toUpperCase()} STRATEGY
+            {gameState.currentStrategy.toUpperCase()} STRATEGY
           </text>
         )}
       </svg>

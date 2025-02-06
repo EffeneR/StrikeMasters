@@ -1,15 +1,11 @@
+'use client';
+
 import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Shield, Zap, Target, DollarSign } from 'lucide-react';
-
-interface BuyMenuProps {
-  agent: any;
-  money: number;
-  side: 't' | 'ct';
-  strategy: string;
-  onBuy: (agent: any, loadout: any) => void;
-}
+import { useGame } from '@/components/game-provider';
+import { toast } from 'sonner';
 
 interface Loadout {
   weapons: string[];
@@ -53,7 +49,6 @@ const EQUIPMENT: { [key: string]: EquipmentInfo } = {
   defuse: { name: 'Defuse Kit', cost: 400, type: 'utility', priority: 3 }
 };
 
-// Strategy-based loadout recommendations
 const STRATEGY_LOADOUTS = {
   rush_b: {
     'Entry Fragger': ['mac10', 'flash', 'flash'],
@@ -85,31 +80,38 @@ const STRATEGY_LOADOUTS = {
   }
 };
 
-const BuyMenu: React.FC<BuyMenuProps> = ({ 
-  agent, 
-  money, 
-  side, 
-  strategy = 'default',
-  onBuy 
-}) => {
+const BuyMenu: React.FC = () => {
+  const { gameState, buyEquipment } = useGame();
   const [loadout, setLoadout] = useState<Loadout>({ weapons: [], equipment: [], total: 0 });
   const [recommendedLoadout, setRecommendedLoadout] = useState<Loadout | null>(null);
 
-  useEffect(() => {
-    // Generate recommended loadout based on strategy and role
-    const strategyLoadout = STRATEGY_LOADOUTS[strategy]?.[agent.role] || STRATEGY_LOADOUTS.default[agent.role];
-    if (strategyLoadout) {
-      const weapons = strategyLoadout.filter(item => WEAPONS[item]);
-      const equipment = strategyLoadout.filter(item => EQUIPMENT[item]);
-      const total = calculateLoadoutCost(weapons, equipment);
+  // Get current player's team and money
+  const currentTeam = gameState.teams[gameState.currentPlayer?.team || 't'];
+  const money = currentTeam?.money || 0;
+  const strategy = gameState.round.currentStrategy[gameState.currentPlayer?.team || 't'] || 'default';
+  const agent = gameState.currentPlayer;
 
-      setRecommendedLoadout({
-        weapons,
-        equipment,
-        total
-      });
+  useEffect(() => {
+    if (!agent?.role) return;
+
+    try {
+      const strategyLoadout = STRATEGY_LOADOUTS[strategy]?.[agent.role] || STRATEGY_LOADOUTS.default[agent.role];
+      if (strategyLoadout) {
+        const weapons = strategyLoadout.filter(item => WEAPONS[item]);
+        const equipment = strategyLoadout.filter(item => EQUIPMENT[item]);
+        const total = calculateLoadoutCost(weapons, equipment);
+
+        setRecommendedLoadout({
+          weapons,
+          equipment,
+          total
+        });
+      }
+    } catch (error) {
+      console.error('Error generating recommended loadout:', error);
+      toast.error('Failed to generate recommended loadout');
     }
-  }, [strategy, agent.role]);
+  }, [strategy, agent?.role]);
 
   const calculateLoadoutCost = (weapons: string[], equipment: string[]): number => {
     const weaponsCost = weapons.reduce((sum, weapon) => sum + (WEAPONS[weapon]?.cost || 0), 0);
@@ -118,36 +120,50 @@ const BuyMenu: React.FC<BuyMenuProps> = ({
   };
 
   const handleBuyStrategy = (buyType: 'full' | 'semi' | 'eco') => {
-    let maxSpend = 0;
-    let suggestedLoadout: Loadout = { weapons: [], equipment: [], total: 0 };
-
-    switch (buyType) {
-      case 'full':
-        maxSpend = Math.min(money, 4500);
-        suggestedLoadout = getStrategyBasedLoadout(maxSpend);
-        break;
-      case 'semi':
-        maxSpend = Math.min(money, 2500);
-        suggestedLoadout = getEconomyLoadout(maxSpend);
-        break;
-      case 'eco':
-        maxSpend = Math.min(money, 1000);
-        suggestedLoadout = getEcoLoadout();
-        break;
+    if (!agent) {
+      toast.error('No active player selected');
+      return;
     }
 
-    setLoadout(suggestedLoadout);
-    onBuy(agent, suggestedLoadout);
+    try {
+      let maxSpend = 0;
+      let suggestedLoadout: Loadout = { weapons: [], equipment: [], total: 0 };
+
+      switch (buyType) {
+        case 'full':
+          maxSpend = Math.min(money, 4500);
+          suggestedLoadout = getStrategyBasedLoadout(maxSpend);
+          break;
+        case 'semi':
+          maxSpend = Math.min(money, 2500);
+          suggestedLoadout = getEconomyLoadout(maxSpend);
+          break;
+        case 'eco':
+          maxSpend = Math.min(money, 1000);
+          suggestedLoadout = getEcoLoadout();
+          break;
+      }
+
+      setLoadout(suggestedLoadout);
+      buyEquipment(agent, suggestedLoadout);
+      toast.success('Equipment purchased successfully');
+    } catch (error) {
+      console.error('Error buying equipment:', error);
+      toast.error('Failed to purchase equipment');
+    }
   };
 
   const getStrategyBasedLoadout = (maxSpend: number): Loadout => {
+    if (!agent?.role) {
+      throw new Error('No agent role defined');
+    }
+
     const strategyLoadout = STRATEGY_LOADOUTS[strategy]?.[agent.role] || 
                            STRATEGY_LOADOUTS.default[agent.role];
     let weapons: string[] = [];
     let equipment: string[] = [];
     let remainingMoney = maxSpend;
 
-    // Try to buy recommended weapons first
     for (const item of strategyLoadout) {
       if (WEAPONS[item] && WEAPONS[item].cost <= remainingMoney) {
         weapons.push(item);
@@ -158,7 +174,6 @@ const BuyMenu: React.FC<BuyMenuProps> = ({
       }
     }
 
-    // Add armor if possible
     if (remainingMoney >= EQUIPMENT.kevlar.cost) {
       equipment.push('kevlar');
       remainingMoney -= EQUIPMENT.kevlar.cost;
@@ -177,14 +192,14 @@ const BuyMenu: React.FC<BuyMenuProps> = ({
   };
 
   const getEconomyLoadout = (maxSpend: number): Loadout => {
-    const weapons = [side === 't' ? 'mac10' : 'mp9'];
+    const weapons = [agent?.team === 't' ? 'mac10' : 'mp9'];
     const equipment = ['kevlar'];
     const total = WEAPONS[weapons[0]].cost + EQUIPMENT.kevlar.cost;
     return { weapons, equipment, total };
   };
 
   const getEcoLoadout = (): Loadout => {
-    const weapons = [side === 't' ? 'glock' : 'usp'];
+    const weapons = [agent?.team === 't' ? 'glock' : 'usp'];
     const equipment = money >= 650 ? ['kevlar'] : [];
     const total = WEAPONS[weapons[0]].cost + (equipment.length ? EQUIPMENT.kevlar.cost : 0);
     return { weapons, equipment, total };
@@ -229,6 +244,16 @@ const BuyMenu: React.FC<BuyMenuProps> = ({
     </div>
   );
 
+  if (!agent) {
+    return (
+      <Card className="w-full max-w-md bg-gray-800">
+        <div className="p-6 text-center text-gray-400">
+          No active player selected
+        </div>
+      </Card>
+    );
+  }
+
   return (
     <Card className="w-full max-w-md bg-gray-800">
       <div className="p-6">
@@ -248,7 +273,7 @@ const BuyMenu: React.FC<BuyMenuProps> = ({
               className="w-full mt-2 bg-blue-600"
               onClick={() => {
                 setLoadout(recommendedLoadout);
-                onBuy(agent, recommendedLoadout);
+                buyEquipment(agent, recommendedLoadout);
               }}
               disabled={recommendedLoadout.total > money}
             >
