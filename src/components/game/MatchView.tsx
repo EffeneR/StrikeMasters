@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -26,8 +26,9 @@ import BuyMenu from './BuyMenu';
 import GameRenderer from './GameRenderer';
 import CombatVisualizer from './CombatVisualizer';
 import { useGame } from '@/components/game-provider';
+import { toast } from 'sonner';
 
-// Improved type safety for interfaces
+// Types and Interfaces
 interface Agent {
   id: string;
   name: string;
@@ -59,17 +60,16 @@ interface Team {
   };
 }
 
-// Updated GameState interface with required fields
 interface GameState {
   match: {
-    score: { t: number; ct: number }; // Making these required
+    score: { t: number; ct: number };
     currentRound: number;
     status: 'active' | 'paused' | 'ended';
   };
   round: {
     phase: 'warmup' | 'freezetime' | 'live' | 'planted' | 'ended';
     timeLeft: number;
-    currentStrategy: {  // Making this required
+    currentStrategy: {
       t: string;
       ct: string;
     };
@@ -83,6 +83,7 @@ interface GameState {
   combatResult: any;
 }
 
+// Constants
 const T_STRATEGIES = {
   default: "Default Setup",
   rush_b: "Rush B",
@@ -122,25 +123,11 @@ const STRATEGY_DESCRIPTIONS = {
   fake_a_b: "Fake presence at A before B execute",
   eco_rush: "Economic round with rushed strategy"
 } as const;
-
-// Improved score validation with TypeScript type guard
-const isValidScore = (score: any): score is { t: number; ct: number } => {
-  return (
-    score !== null &&
-    typeof score === 'object' &&
-    't' in score &&
-    'ct' in score &&
-    typeof score.t === 'number' &&
-    typeof score.ct === 'number'
-  );
-};
-
-// Improved TeamScore component with better type safety and null checks
+// Utility Components
 const TeamScore: React.FC<{
   score?: { t?: number; ct?: number };
   round?: number;
 }> = ({ score, round }) => {
-  // Ensure safe values even if score is undefined
   const defaultScore = { t: 0, ct: 0 };
   const safeScore = score ?? defaultScore;
   const safeRound = round ?? 1;
@@ -194,6 +181,26 @@ const StrategyPanel: React.FC<{
 }) => {
   const strategies = side === 't' ? T_STRATEGIES : CT_STRATEGIES;
   
+  const handleStrategyChange = useCallback((newStrategy: string) => {
+    try {
+      onStrategyChange(newStrategy);
+      toast.success(`Strategy changed to ${strategies[newStrategy as keyof typeof strategies]}`);
+    } catch (error) {
+      toast.error('Failed to change strategy');
+      console.error('Strategy change error:', error);
+    }
+  }, [onStrategyChange, strategies]);
+
+  const handleMidRoundCall = useCallback((call: string) => {
+    try {
+      onMidRoundCall(call);
+      toast.success(`New call: ${MID_ROUND_CALLS[call as keyof typeof MID_ROUND_CALLS]}`);
+    } catch (error) {
+      toast.error('Failed to make mid-round call');
+      console.error('Mid-round call error:', error);
+    }
+  }, [onMidRoundCall]);
+
   return (
     <Card className="bg-gray-800 p-4 mb-4">
       <div className="space-y-4">
@@ -212,7 +219,7 @@ const StrategyPanel: React.FC<{
             
             <Select 
               value={currentStrategy} 
-              onValueChange={onStrategyChange}
+              onValueChange={handleStrategyChange}
             >
               <SelectTrigger className="w-full bg-gray-700">
                 <SelectValue placeholder="Select Strategy" />
@@ -257,7 +264,7 @@ const StrategyPanel: React.FC<{
               {Object.entries(MID_ROUND_CALLS).map(([key, label]) => (
                 <Button
                   key={key}
-                  onClick={() => onMidRoundCall(key)}
+                  onClick={() => handleMidRoundCall(key)}
                   className={`${
                     currentCall === key
                       ? 'bg-blue-600 hover:bg-blue-700'
@@ -273,7 +280,7 @@ const StrategyPanel: React.FC<{
         )}
 
         <div className="mt-2 text-sm text-gray-400">
-          Active Strategy: {strategies[currentStrategy as keyof typeof T_STRATEGIES] ?? 'Default'}
+          Active Strategy: {strategies[currentStrategy as keyof typeof strategies] ?? 'Default'}
           {currentCall && (
             <div className="mt-1 text-yellow-400">
               Current Call: {MID_ROUND_CALLS[currentCall as keyof typeof MID_ROUND_CALLS] ?? 'None'}
@@ -284,295 +291,153 @@ const StrategyPanel: React.FC<{
     </Card>
   );
 };
-
-const AgentPerformanceCard: React.FC<{ agent: Agent }> = ({ agent }) => {
-  const getPerformanceColor = (value: number) => {
-    if (!value && value !== 0) return 'text-gray-400';
-    if (value >= 0.7) return 'text-green-400';
-    if (value >= 0.4) return 'text-yellow-400';
-    return 'text-red-400';
+// Agent Performance Card Component
+const AgentPerformanceCard: React.FC<{
+  agent: Agent;
+}> = ({ agent }) => {
+  const getHealthColor = (health: number) => {
+    if (health > 70) return 'bg-green-500';
+    if (health > 30) return 'bg-yellow-500';
+    return 'bg-red-500';
   };
 
-  const safeStats = agent.strategyStats ?? {
-    utilityUsage: 0,
-    positioningScore: 0,
-    strategyAdherence: 0,
-    impactRating: 0
+  const getStatIcon = (stat: string) => {
+    switch (stat) {
+      case 'utility': return <Shield className="w-4 h-4" />;
+      case 'positioning': return <Target className="w-4 h-4" />;
+      case 'strategy': return <BrainCircuit className="w-4 h-4" />;
+      case 'impact': return <Zap className="w-4 h-4" />;
+      default: return null;
+    }
   };
 
   return (
-    <div className="mt-2 space-y-1">
-      <div className="flex items-center justify-between text-xs">
-        <span>Strategy Adherence</span>
-        <span className={getPerformanceColor(safeStats.strategyAdherence)}>
-          {Math.round((safeStats.strategyAdherence ?? 0) * 100)}%
-        </span>
+    <Card className={`p-3 ${!agent.isAlive ? 'opacity-50' : ''}`}>
+      <div className="flex justify-between items-center mb-2">
+        <div>
+          <h4 className="font-bold">{agent.name}</h4>
+          <span className="text-sm text-gray-400">{agent.role}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          {agent.isAlive ? (
+            <CheckCircle2 className="w-5 h-5 text-green-500" />
+          ) : (
+            <XCircle className="w-5 h-5 text-red-500" />
+          )}
+        </div>
       </div>
-      <div className="flex items-center justify-between text-xs">
-        <span>Utility Usage</span>
-        <span className={getPerformanceColor(safeStats.utilityUsage)}>
-          {Math.round((safeStats.utilityUsage ?? 0) * 100)}%
-        </span>
+
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <Progress 
+            value={agent.health} 
+            className={`h-2 ${getHealthColor(agent.health)}`}
+          />
+          <span className="text-sm">{agent.health}HP</span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div className="text-sm">K: {agent.matchStats.kills}</div>
+          <div className="text-sm">D: {agent.matchStats.deaths}</div>
+        </div>
+
+        {agent.strategyStats && (
+          <div className="grid grid-cols-2 gap-2 mt-2">
+            {Object.entries(agent.strategyStats).map(([key, value]) => (
+              <div key={key} className="flex items-center gap-1">
+                {getStatIcon(key)}
+                <Progress value={value * 100} className="h-1" />
+              </div>
+            ))}
+          </div>
+        )}
       </div>
-      <div className="flex items-center justify-between text-xs">
-        <span>Impact Rating</span>
-        <span className={getPerformanceColor(safeStats.impactRating)}>
-          {(safeStats.impactRating ?? 0).toFixed(2)}
-        </span>
+    </Card>
+  );
+};
+
+// Team Section Component
+const TeamSection: React.FC<{
+  side: 't' | 'ct';
+  team: Team;
+}> = ({ side, team }) => {
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <h3 className="text-xl font-bold">
+          {side === 't' ? 'Terrorists' : 'Counter-Terrorists'}
+        </h3>
+        <div className="text-lg">
+          ${team.money.toLocaleString()}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {team.agents.map((agent) => (
+          <AgentPerformanceCard key={agent.id} agent={agent} />
+        ))}
       </div>
     </div>
   );
 };
 
-const TeamSection: React.FC<{
-  side: 't' | 'ct';
-  team: Team;
-  phase: string;
-  currentStrategy: string;
-  currentCall: string | null;
-  onStrategyChange?: (strategy: string) => void;
-  onMidRoundCall?: (call: string) => void;
-  showBuyMenu?: boolean;
-  setSelectedAgent?: (agent: Agent | null) => void;
-}> = ({
-  side,
-  team,
-  phase,
-  currentStrategy,
-  currentCall,
-  onStrategyChange,
-  onMidRoundCall,
-  showBuyMenu,
-  setSelectedAgent
-}) => (
-  <div className="space-y-2">
-    <h2 className={`text-xl font-bold ${side === 't' ? 'text-yellow-400' : 'text-blue-400'}`}>
-      {side === 't' ? 'Terrorists' : 'Counter-Terrorists'}
-    </h2>
-    
-    {side === 't' && onStrategyChange && onMidRoundCall && (
-      <StrategyPanel
-        side={side}
-        phase={phase}
-        currentStrategy={currentStrategy}
-        currentCall={currentCall}
-        strategyStats={team.strategyStats ?? { strategySuccessRate: 0, roundsWonWithStrategy: {} }}
-        onStrategyChange={onStrategyChange}
-        onMidRoundCall={onMidRoundCall}
-      />
-    )}
-
-    {team.agents.map(agent => (
-      <Card
-        key={agent.id}
-        className={`bg-gray-800 transition-all
-          ${!agent.isAlive ? 'opacity-50' : ''}
-          ${showBuyMenu && agent.isAlive && side === 't' ? 'cursor-pointer hover:bg-gray-700' : ''}`}
-        onClick={() => {
-          if (showBuyMenu && agent.isAlive && side === 't' && setSelectedAgent) {
-            setSelectedAgent(agent);
-          }
-        }}
-      >
-        <div className="p-4">
-          <div className="flex justify-between items-center">
-            <div>
-              <div className="font-bold flex items-center gap-2">
-                {agent.name}
-                {agent.strategyStats?.strategyAdherence > 0.7 && (
-                  <CheckCircle2 className="w-4 h-4 text-green-400" />
-                )}
-              </div>
-              <div className="text-sm text-gray-400">{agent.role}</div>
-            </div>
-            <div className="text-right">
-              <div className="text-green-400">HP: {agent.health}</div>
-              <div className="text-sm text-gray-400">${team.money}</div>
-            </div>
-          </div>
-          
-          <div className="mt-2 text-sm">
-            {agent.weapons?.join(', ') || 'No weapons'}
-          </div>
-          
-          <div className="mt-1 text-sm flex justify-between">
-            <span>K: {agent.matchStats?.kills ?? 0} / D: {agent.matchStats?.deaths ?? 0}</span>
-            {agent.strategyStats && (
-              <span className="text-xs text-gray-400">
-                Impact: {agent.strategyStats.impactRating.toFixed(2)}
-              </span>
-            )}
-          </div>
-
-          <AgentPerformanceCard agent={agent} />
-        </div>
-      </Card>
-    ))}
-
-    {side === 't' && team.strategyStats && (
-      <Card className="bg-gray-700 p-2 mt-4">
-        <div className="text-sm">
-          <div className="flex justify-between mb-1">
-            <span>Strategy Success Rate:</span>
-            <span className={`font-bold ${
-              team.strategyStats.strategySuccessRate > 0.6 ? 'text-green-400' : 'text-yellow-400'
-            }`}>
-              {Math.round((team.strategyStats.strategySuccessRate ?? 0) * 100)}%
-            </span>
-          </div>
-          <Progress value={(team.strategyStats.strategySuccessRate ?? 0) * 100} className="h-1" />
-        </div>
-      </Card>
-    )}
-  </div>
-);
-
-function MatchView() {
-  const { state, controller } = useGame();
-  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
+// Main Match View Component
+const MatchView: React.FC = () => {
+  const { gameState, updateStrategy, makeMidRoundCall } = useGame();
   const [showBuyMenu, setShowBuyMenu] = useState(false);
-  const [currentStrategy, setCurrentStrategy] = useState<string>('default');
-  const [currentCall, setCurrentCall] = useState<string | null>(null);
-
-  // Initialize game state safely
-  useEffect(() => {
-    console.log('Current game state:', state);
-    if (!state?.match?.score) {
-      console.log("Initializing game state...");
-      // You might want to trigger initial state setup here
-    }
-  }, [state?.match?.score]);
 
   useEffect(() => {
-    if (state?.round?.phase === 'freezetime') {
+    if (gameState.round.phase === 'freezetime') {
       setShowBuyMenu(true);
     } else {
       setShowBuyMenu(false);
-      setSelectedAgent(null);
     }
-  }, [state?.round?.phase]);
-
-  const handleStrategyChange = (strategy: string) => {
-    setCurrentStrategy(strategy);
-    if (controller) {
-      controller.updateStrategy('t', strategy);
-    }
-  };
-
-  const handleMidRoundCall = (call: string) => {
-    setCurrentCall(call);
-    if (controller) {
-      controller.processMidRoundCall('t', call);
-    }
-  };
-
-  const handleBuy = (loadout: { weapons: string[]; equipment: string[]; total: number }) => {
-    if (selectedAgent && controller) {
-      controller.processBuy(selectedAgent.team, selectedAgent.id, loadout);
-    }
-  };
-
-  // Early return for loading state
-  if (!state) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-white">Loading state...</div>
-      </div>
-    );
-  }
-  
-  const score = state.match?.score ?? { t: 0, ct: 0 };
-  const round = state.match?.currentRound ?? 1;
+  }, [gameState.round.phase]);
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-4">
-      <div className="max-w-7xl mx-auto space-y-4">
-        <TeamScore 
-          score={score} 
-          round={round} 
-        />
+    <div className="container mx-auto p-4 space-y-6">
+      <TeamScore 
+        score={gameState.match.score} 
+        round={gameState.match.currentRound} 
+      />
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <TeamSection
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div>
+          <StrategyPanel
             side="t"
-            team={state.teams.t}
-            phase={state.round.phase}
-            currentStrategy={currentStrategy}
-            currentCall={currentCall}
-            onStrategyChange={handleStrategyChange}
-            onMidRoundCall={handleMidRoundCall}
-            showBuyMenu={showBuyMenu}
-            setSelectedAgent={setSelectedAgent}
+            phase={gameState.round.phase}
+            currentStrategy={gameState.round.currentStrategy.t}
+            currentCall={gameState.round.activeCall}
+            strategyStats={gameState.teams.t.strategyStats}
+            onStrategyChange={(strategy) => updateStrategy('t', strategy)}
+            onMidRoundCall={makeMidRoundCall}
           />
-          
-          <div className="lg:row-span-2">
-            <GameRenderer
-              agents={[...state.teams.t.agents, ...state.teams.ct.agents]}
-              events={state.events}
-              phase={state.round.phase}
-              strategy={currentStrategy}
-              currentCall={currentCall}
-            />
-            {state.combatResult && (
-              <CombatVisualizer
-                combatResult={state.combatResult}
-                onAnimationComplete={() => controller?.clearCombatResult?.()}
-              />
-            )}
-          </div>
-
-          <TeamSection
-            side="ct"
-            team={state.teams.ct}
-            phase={state.round.phase}
-            currentStrategy={state.round.currentStrategy?.ct ?? 'default'}
-            currentCall={null}
-          />
+          <TeamSection side="t" team={gameState.teams.t} />
         </div>
 
-        {showBuyMenu && selectedAgent && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="relative" onClick={e => e.stopPropagation()}>
-              <BuyMenu
-                agent={selectedAgent}
-                money={state.teams[selectedAgent.team].money}
-                side={selectedAgent.team}
-                onBuy={handleBuy}
-                strategy={currentStrategy}
-              />
-              <Button
-                className="absolute -top-2 -right-2 bg-red-600 hover:bg-red-700 rounded-full w-8 h-8 p-0"
-                onClick={() => setSelectedAgent(null)}
-              >
-                ×
-              </Button>
-            </div>
-          </div>
-        )}
-
-        <div className="flex justify-center gap-4">
-          <Button
-            onClick={() => {
-              if (state.match.status === 'paused') {
-                controller?.resumeMatch();
-              } else {
-                controller?.pauseMatch();
-              }
-            }}
-            className={state.match.status === 'paused' ? 'bg-green-600 hover:bg-green-700' : 'bg-yellow-600 hover:bg-yellow-700'}
-          >
-            {state.match.status === 'paused' ? 'Resume' : 'Pause'}
-          </Button>
-          <Button
-            className="bg-red-600 hover:bg-red-700"
-            onClick={() => controller?.endMatch()}
-          >
-            End Match
-          </Button>
+        <div>
+          <StrategyPanel
+            side="ct"
+            phase={gameState.round.phase}
+            currentStrategy={gameState.round.currentStrategy.ct}
+            currentCall={gameState.round.activeCall}
+            strategyStats={gameState.teams.ct.strategyStats}
+            onStrategyChange={(strategy) => updateStrategy('ct', strategy)}
+            onMidRoundCall={makeMidRoundCall}
+          />
+          <TeamSection side="ct" team={gameState.teams.ct} />
         </div>
       </div>
+
+      {showBuyMenu && <BuyMenu />}
+      
+      <GameRenderer gameState={gameState} />
+      
+      {gameState.combatResult && (
+        <CombatVisualizer result={gameState.combatResult} />
+      )}
     </div>
   );
-}
+};
 
 export default MatchView;
