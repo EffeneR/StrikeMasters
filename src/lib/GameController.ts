@@ -576,24 +576,24 @@ export default class GameController {
   public getState(): GameState {
     return { ...this.state };
   }
-}
 
-public updateTimer(): void {
-  try {
-    if (this.state.match.status !== 'active') return;
+  public updateTimer(): void {
+    try {
+      if (this.state.match.status !== 'active') return;
 
-    if (this.state.round.timeLeft > 0) {
-      this.state.round.timeLeft -= 1; // Decrease by 1 second
-      
-      // Check if time has run out
-      if (this.state.round.timeLeft <= 0) {
-        this.handlePhaseEnd();
+      if (this.state.round.timeLeft > 0) {
+        this.state.round.timeLeft -= 1; // Decrease by 1 second
+        
+        // Check if time has run out
+        if (this.state.round.timeLeft <= 0) {
+          this.handlePhaseEnd();
+        }
+        
+        this.notifyListeners();
       }
-      
-      this.notifyListeners();
+    } catch (error) {
+      console.error('Error updating timer:', error);
+      toast.error('Failed to update timer');
     }
-  } catch (error) {
-    console.error('Error updating timer:', error);
-    toast.error('Failed to update timer');
   }
 }
