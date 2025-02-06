@@ -29,9 +29,14 @@ class MovementSystem {
   private readonly MOVEMENT_SPEED = 2;
   private readonly CLOSE_DISTANCE = 5;
 
-  constructor(tactics: Dust2TacticsSystem) {
-    this.tactics = tactics;
+  constructor() {
+    this.tactics = new Dust2TacticsSystem();
     this.agentPaths = new Map();
+  }
+
+  public initialize(gameState: any): void {
+    this.agentPaths.clear();
+    this.tactics.initialize(gameState);
   }
 
   updatePositions(
@@ -170,7 +175,6 @@ class MovementSystem {
     };
   }
 
-  // Utility methods for strategy-based movement
   private shouldHoldPosition(agent: Agent, strategy: string): boolean {
     return (
       strategy === 'default' ||

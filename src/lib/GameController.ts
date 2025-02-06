@@ -1,56 +1,53 @@
-// src/lib/GameController.ts
-import RoundSystem from './systems/RoundSystem';
-import CombatSystem from './systems/CombatSystem';
-import MovementSystem from './systems/MovementSystem';
-import BuySystem from './systems/BuySystem';
-import Dust2TacticsSystem from './systems/Dust2TacticsSystem';
-import AgentSystem from './systems/AgentSystem';
+// GameController.ts
+import CombatSystem from '@/lib/systems/CombatSystem';
+import MovementSystem from '@/lib/systems/MovementSystem';
+import RoundSystem from '@/lib/systems/RoundSystem';
+import BuySystem from '@/lib/systems/BuySystem';
+import AgentSystem from '@/lib/systems/AgentSystem';
+import Dust2TacticsSystem from '@/lib/systems/Dust2TacticsSystem';
 
-// Strategy Definitions
-export const T_STRATEGIES = {
-  DEFAULT: "Default",
-  RUSH_B: "Rush B",
-  SPLIT_A: "Split A",
-  MID_CONTROL: "Mid Control",
-  FAKE_A_B: "Fake A to B",
-  ECO_RUSH: "Eco Rush"
-} as const;
-
-export const CT_STRATEGIES = {
-  DEFAULT: "Default",
-  AGGRO_MID: "Aggressive Mid",
-  STACK_A: "Stack A",
-  STACK_B: "Stack B",
-  RETAKE_SETUP: "Retake Setup",
-  FULL_SAVE: "Full Save"
-} as const;
-
-export type TStrategy = keyof typeof T_STRATEGIES;
-export type CTStrategy = keyof typeof CT_STRATEGIES;
-
-export interface Position {
+interface Position {
   x: number;
   y: number;
 }
 
-export interface StrategyConfig {
+interface AgentStats {
+  aim: number;
+  reaction: number;
+  positioning: number;
+  utility: number;
+  leadership: number;
+  clutch: number;
+}
+
+interface Agent {
+  id: string;
   name: string;
-  positions: {[role: string]: string[]};
-  utility: {[role: string]: string[]};
-  priority: {
-    aggression: number;
-    map_control: number;
-    economy: number;
+  team: 't' | 'ct';
+  role: string;
+  position: Position;
+  isAlive: boolean;
+  health: number;
+  armor: number;
+  weapons: string[];
+  equipment: string[];
+  stats: AgentStats;
+  matchStats: {
+    kills: number;
+    deaths: number;
+    assists: number;
+    utilityDamage: number;
+    flashAssists: number;
+  };
+  strategyStats: {
+    utilityUsage: number;
+    positioningScore: number;
+    strategyAdherence: number;
+    impactRating: number;
   };
 }
 
-export interface MidRoundCall {
-  type: 'rotate' | 'execute' | 'fallback' | 'hold';
-  target?: 'A' | 'B' | 'Mid';
-  priority: number;
-}
-
-export interface GameState {
+interface GameState {
   match: {
     id: string;
     status: 'pending' | 'active' | 'paused' | 'ended';
@@ -73,17 +70,17 @@ export interface GameState {
       t: string;
       ct: string;
     };
-    activeCall: MidRoundCall | null;
+    activeCall: string | null;
   };
   teams: {
     t: Team;
     ct: Team;
   };
-  events: Event[];
-  combatResult: CombatResult | null;
+  events: GameEvent[];
+  combatResult: any | null;
 }
 
-export interface Team {
+interface Team {
   money: number;
   roundWins: number;
   lossBonus: number;
@@ -97,101 +94,46 @@ export interface Team {
   };
 }
 
-export interface Agent {
-  id: string;
-  name: string;
-  team: 't' | 'ct';
-  role: string;
-  position: Position;
-  isAlive: boolean;
-  health: number;
-  armor: number;
-  weapons: string[];
-  equipment: string[];
-  matchStats: {
-    kills: number;
-    deaths: number;
-    assists: number;
-    utilityDamage: number;
-    flashAssists: number;
-  };
-  strategyStats: {
-    utilityUsage: number;
-    positioningScore: number;
-    strategyAdherence: number;
-    impactRating: number;
-  };
-}
-
-export interface Event {
+interface GameEvent {
   type: string;
-  timestamp: number;
   data: any;
+  timestamp: number;
 }
 
-export interface CombatResult {
-  type: 'kill' | 'damage' | 'utility' | 'trade';
-  attacker: Agent;
-  victim?: Agent;
-  weapon?: string;
-  damage?: number;
-  isHeadshot?: boolean;
-  isStrategyKill?: boolean;
-  isTradeKill?: boolean;
-  position?: Position;
-}
-// GameController.ts (continued...)
+type StateListener = (state: GameState) => void;
 
-export class GameController {
+export default class GameController {
   private state: GameState;
+  private listeners: StateListener[] = [];
+  private gameLoopInterval: NodeJS.Timer | null = null;
+  private lastCombatProcess: number = 0;
   private systems: {
-    round: RoundSystem;
     combat: CombatSystem;
     movement: MovementSystem;
+    round: RoundSystem;
     buy: BuySystem;
-    tactics: Dust2TacticsSystem;
     agent: AgentSystem;
+    tactics: Dust2TacticsSystem;
   };
-  private listeners: Set<(state: GameState) => void>;
-  private lastUpdate: number;
-  private lastCombatProcess: number;
-  private gameLoopInterval: NodeJS.Timeout | null;
-  private strategyTimeout: NodeJS.Timeout | null;
-  private activeStrategies: Map<string, StrategyConfig>;
-  private currentCall: MidRoundCall | null;
 
   constructor() {
-    const tactics = new Dust2TacticsSystem();
-    
     this.systems = {
-      round: new RoundSystem(),
       combat: new CombatSystem(),
-      movement: new MovementSystem(tactics),
+      movement: new MovementSystem(),
+      round: new RoundSystem(),
       buy: new BuySystem(),
-      tactics: tactics,
-      agent: new AgentSystem()
+      agent: new AgentSystem(),
+      tactics: new Dust2TacticsSystem()
     };
 
-    this.state = this.getInitialState();
-    this.listeners = new Set();
-    this.lastUpdate = Date.now();
-    this.lastCombatProcess = 0;
-    this.gameLoopInterval = null;
-    this.strategyTimeout = null;
-    this.currentCall = null;
-    this.activeStrategies = new Map();
-
-    this.initializeStrategies();
-  }
-
-  private getInitialState(): GameState {
-    return {
+    // Initialize with default state including score
+    this.state = {
       match: {
-        id: Math.random().toString(36).substr(2, 9),
+        id: '',
         status: 'pending',
-        currentRound: 1,
+        currentRound: 0,
         maxRounds: 30,
-        score: { t: 0, ct: 0 },
+        score: { t: 0, ct: 0 }, // Ensure score is initialized
         winner: null,
         startTime: null,
         endTime: null
@@ -205,27 +147,30 @@ export class GameController {
         winner: null,
         endReason: null,
         currentStrategy: {
-          t: T_STRATEGIES.DEFAULT,
-          ct: CT_STRATEGIES.DEFAULT
+          t: 'Default',
+          ct: 'Default'
         },
         activeCall: null
       },
       teams: {
-        t: this.createInitialTeam(),
-        ct: this.createInitialTeam()
+        t: this.createDefaultTeam(),
+        ct: this.createDefaultTeam()
       },
       events: [],
       combatResult: null
     };
+
+    // Initialize all systems with default state
+    Object.values(this.systems).forEach(system => system.initialize(this.state));
   }
 
-  private createInitialTeam(): Team {
+  private createDefaultTeam(): Team {
     return {
       money: 800,
       roundWins: 0,
-      lossBonus: 0,
+      lossBonus: 1400,
       timeoutAvailable: true,
-      strategy: 'default',
+      strategy: 'Default',
       agents: [],
       strategyStats: {
         roundsWonWithStrategy: {},
@@ -235,313 +180,143 @@ export class GameController {
     };
   }
 
-  public initializeMatch(config: { 
-    playerTeam: Agent[],
-    botTeam: Agent[],
+  public subscribe(listener: StateListener): () => void {
+    this.listeners.push(listener);
+    return () => {
+      this.listeners = this.listeners.filter(l => l !== listener);
+    };
+  }
+
+  private notifyListeners(): void {
+    this.listeners.forEach(listener => listener(this.state));
+  }
+
+  public initializeMatch(config: {
+    playerTeam: Agent[];
+    botTeam: Agent[];
     config: {
-      maxRounds: number,
-      startingSide: 't' | 'ct',
-      initialStrategy: string,
-      difficulty: string
-    }
+      maxRounds: number;
+      startingSide: 't' | 'ct';
+      initialStrategy: string;
+      difficulty: string;
+      matchId: string;
+    };
   }): void {
-    const { playerTeam, botTeam, config: matchConfig } = config;
-    
-    this.state.match.maxRounds = matchConfig.maxRounds;
-    this.state.match.status = 'active';
-    this.state.match.startTime = Date.now();
+    console.log("Initializing match with config:", config);
 
-    const side = matchConfig.startingSide;
-    this.state.teams[side].agents = playerTeam;
-    this.state.teams[side === 't' ? 'ct' : 't'].agents = botTeam;
-
-    this.state.round.currentStrategy[side] = matchConfig.initialStrategy;
-    
-    this.startGameLoop();
-  }
-  // GameController.ts (continued...)
-
-  public stopGameLoop(): void {
-    if (this.gameLoopInterval) {
-      clearInterval(this.gameLoopInterval);
-      this.gameLoopInterval = null;
-    }
-  }
-  
-  public pauseMatch(): void {
-    this.state.match.status = 'paused';
-    this.stopGameLoop();
-    this.notifyListeners();
-  }
-  
-  public resumeMatch(): void {
-    this.state.match.status = 'active';
-    this.startGameLoop();
-    this.notifyListeners();
-  }
-  
-  public buyItem(agentId: string, loadout: any): void {
-    // Find agent
-    const agent = [...this.state.teams.t.agents, ...this.state.teams.ct.agents]
-      .find(a => a.id === agentId);
-    if (!agent) return;
-  
-    // Update agent's weapons and equipment
-    agent.weapons = loadout.weapons;
-    agent.equipment = loadout.equipment;
-  
-    this.notifyListeners();
-  }
-  
-  public setState(initialState: Partial<GameState>): void {
-    this.state = { ...this.state, ...initialState };
-    this.notifyListeners();
-  }
-  
-  public clearCombatResult(): void {
-    this.state.combatResult = null;
-    this.notifyListeners();
-  }
-
-  public handlePhaseEnd(): void {
-    const currentPhase = this.state.round.phase;
-    
-    switch (currentPhase) {
-      case 'warmup':
-        this.state.round.phase = 'freezetime';
-        this.state.round.timeLeft = 15; // Freeze time duration
-        break;
-      case 'freezetime':
-        this.state.round.phase = 'live';
-        this.state.round.timeLeft = 115; // Round time
-        break;
-      case 'live':
-        if (!this.state.round.bombPlanted) {
-          this.endRound('ct', 'Time ran out');
+    // Create a complete state object atomically
+    const newState: GameState = {
+      match: {
+        id: config.config.matchId,
+        status: 'active',
+        currentRound: 1,
+        maxRounds: config.config.maxRounds,
+        score: { t: 0, ct: 0 },
+        winner: null,
+        startTime: Date.now(),
+        endTime: null
+      },
+      round: {
+        phase: 'warmup',
+        timeLeft: 15,
+        bombPlanted: false,
+        bombSite: null,
+        plantTime: null,
+        winner: null,
+        endReason: null,
+        currentStrategy: {
+          t: config.config.initialStrategy,
+          ct: 'Default'
+        },
+        activeCall: null
+      },
+      teams: {
+        t: {
+          money: 800,
+          roundWins: 0,
+          lossBonus: 1400,
+          timeoutAvailable: true,
+          strategy: config.config.startingSide === 't' ? config.config.initialStrategy : 'Default',
+          agents: config.config.startingSide === 't' ? config.playerTeam : config.botTeam,
+          strategyStats: {
+            roundsWonWithStrategy: {},
+            strategySuccessRate: 0,
+            lastSuccessfulStrategy: ''
+          }
+        },
+        ct: {
+          money: 800,
+          roundWins: 0,
+          lossBonus: 1400,
+          timeoutAvailable: true,
+          strategy: config.config.startingSide === 'ct' ? config.config.initialStrategy : 'Default',
+          agents: config.config.startingSide === 'ct' ? config.playerTeam : config.botTeam,
+          strategyStats: {
+            roundsWonWithStrategy: {},
+            strategySuccessRate: 0,
+            lastSuccessfulStrategy: ''
+          }
         }
-        break;
-      case 'planted':
-        this.endRound('t', 'Bomb detonated');
-        break;
-      case 'ended':
-        // Start next round
-        this.state.match.currentRound++;
-        this.state.round.phase = 'freezetime';
-        this.state.round.timeLeft = 15;
-        break;
-    }
+      },
+      events: [],
+      combatResult: null
+    };
+
+    // Assign new state atomically
+    this.state = newState;
+
+    // Initialize all systems with new state
+    Object.values(this.systems).forEach(system => system.initialize(this.state));
+
+    // Start game loop
+    this.startGameLoop();
+    
+    // Notify listeners of state change
     this.notifyListeners();
   }
-  
-  public updateTimer(): void {
-    if (this.state.round.timeLeft > 0) {
-      this.state.round.timeLeft--;
-      
-      if (this.state.round.timeLeft === 0) {
-        this.handlePhaseEnd();
-      }
-    }
-    this.notifyListeners();
-  }
-  
+
   public startGameLoop(): void {
-    if (this.gameLoopInterval) {
-      clearInterval(this.gameLoopInterval);
-    }
+    if (this.gameLoopInterval) clearInterval(this.gameLoopInterval);
     
     this.state.match.status = 'active';
     this.state.round.phase = 'freezetime';
     this.state.round.timeLeft = 15;
     
-    this.gameLoopInterval = setInterval(() => {
-      this.updateTimer();
-    }, 1000);
-    
+    this.gameLoopInterval = setInterval(() => this.update(1000/60), 1000/60);
     this.notifyListeners();
-  }
-
-  private initializeStrategies(): void {
-    // T-side strategies
-    this.activeStrategies.set('t_default', {
-      name: T_STRATEGIES.DEFAULT,
-      positions: {
-        'Entry Fragger': ['t_spawn', 'long_doors'],
-        'AWPer': ['t_spawn', 't_mid'],
-        'Support': ['t_spawn', 'upper_tunnels'],
-        'In-Game Leader': ['t_spawn', 'catwalk'],
-        'Lurker': ['t_spawn', 'lower_tunnels']
-      },
-      utility: {
-        'Support': ['smoke', 'flash'],
-        'Entry Fragger': ['flash', 'flash'],
-        'In-Game Leader': ['smoke', 'molotov']
-      },
-      priority: {
-        aggression: 0.5,
-        map_control: 0.5,
-        economy: 0.5
-      }
-    });
-
-    this.activeStrategies.set('t_rush_b', {
-      name: T_STRATEGIES.RUSH_B,
-      positions: {
-        'Entry Fragger': ['t_spawn', 'upper_tunnels', 'b_platform'],
-        'AWPer': ['t_spawn', 'upper_tunnels', 'b_platform'],
-        'Support': ['t_spawn', 'upper_tunnels', 'b_platform'],
-        'In-Game Leader': ['t_spawn', 'upper_tunnels', 'b_platform'],
-        'Lurker': ['t_spawn', 'mid_doors']
-      },
-      utility: {
-        'Support': ['smoke', 'flash', 'flash'],
-        'Entry Fragger': ['flash', 'flash'],
-        'In-Game Leader': ['molotov']
-      },
-      priority: {
-        aggression: 0.8,
-        map_control: 0.3,
-        economy: 0.4
-      }
-    });
-
-    // CT-side strategies
-    this.activeStrategies.set('ct_default', {
-      name: CT_STRATEGIES.DEFAULT,
-      positions: {
-        'Entry Fragger': ['ct_spawn', 'long_doors'],
-        'AWPer': ['ct_spawn', 'mid_doors'],
-        'Support': ['ct_spawn', 'b_platform'],
-        'In-Game Leader': ['ct_spawn', 'a_site'],
-        'Lurker': ['ct_spawn', 'window']
-      },
-      utility: {
-        'Support': ['smoke', 'flash'],
-        'Entry Fragger': ['flash', 'flash'],
-        'In-Game Leader': ['smoke', 'molotov']
-      },
-      priority: {
-        aggression: 0.5,
-        map_control: 0.6,
-        economy: 0.5
-      }
-    });
-  }
-
-  public updateStrategy(side: 't' | 'ct', strategyName: string): void {
-    if (this.state.round.phase !== 'freezetime') return;
-
-    const strategyKey = `${side}_${strategyName.toLowerCase()}`;
-    const strategy = this.activeStrategies.get(strategyKey);
-
-    if (!strategy) {
-      console.error(`Invalid strategy: ${strategyName}`);
-      return;
-    }
-
-    this.state.round.currentStrategy[side] = strategyName;
-    this.state.teams[side].strategy = strategyName;
-
-    // Update agent positions based on new strategy
-    this.state.teams[side].agents.forEach(agent => {
-      agent.position = this.systems.tactics.getPositionForAgent(
-        agent,
-        this.state.round.phase,
-        strategyName
-      );
-    });
-
-    // Add utility based on strategy
-    this.state.teams[side].agents.forEach(agent => {
-      const utility = strategy.utility[agent.role] || [];
-      agent.equipment = [...new Set([...agent.equipment, ...utility])];
-    });
-
-    this.addEvent({
-      type: 'strategy_change',
-      timestamp: Date.now(),
-      data: {
-        side,
-        strategy: strategyName,
-        round: this.state.match.currentRound
-      }
-    });
-
-    this.notifyListeners();
-  }
-
-  public processMidRoundCall(side: 't' | 'ct', callType: string, target?: string): void {
-    if (this.state.round.phase !== 'live') return;
-
-    const call: MidRoundCall = {
-      type: callType as 'rotate' | 'execute' | 'fallback' | 'hold',
-      target: target as 'A' | 'B' | 'Mid',
-      priority: 1
-    };
-
-    this.currentCall = call;
-    this.state.round.activeCall = call;
-    this.updateAgentPositionsForCall(side, call);
-
-    this.addEvent({
-      type: 'mid_round_call',
-      timestamp: Date.now(),
-      data: {
-        side,
-        call: callType,
-        target,
-        round: this.state.match.currentRound
-      }
-    });
-
-    if (this.strategyTimeout) {
-      clearTimeout(this.strategyTimeout);
-    }
-
-    this.strategyTimeout = setTimeout(() => {
-      this.currentCall = null;
-      this.state.round.activeCall = null;
-      this.notifyListeners();
-    }, 10000);
-
-    this.notifyListeners();
-  }
-  // GameController.ts (continued...)
-
-  private updateAgentPositionsForCall(side: 't' | 'ct', call: MidRoundCall): void {
-    const team = this.state.teams[side];
-    team.agents.forEach(agent => {
-      if (!agent.isAlive) return;
-
-      switch (call.type) {
-        case 'rotate':
-          agent.position = this.systems.tactics.getPositionForRotate(agent, call.target);
-          break;
-        case 'execute':
-          agent.position = this.systems.tactics.getPositionForExecute(agent, call.target);
-          break;
-        case 'fallback':
-          agent.position = this.systems.tactics.getPositionForFallback(agent);
-          break;
-        case 'hold':
-          // Maintain current position
-          break;
-      }
-    });
-  }
-
-  private startGameLoop(): void {
-    this.gameLoopInterval = setInterval(() => {
-      const now = Date.now();
-      const deltaTime = (now - this.lastUpdate) / 1000;
-      this.update(deltaTime);
-      this.lastUpdate = now;
-    }, 1000 / 60); // 60 FPS
   }
 
   private update(deltaTime: number): void {
-    if (this.state.match.status !== 'active' || this.state.round.phase !== 'live') return;
+    if (this.state.match.status !== 'active') return;
 
-    // Update positions considering strategy and calls
+    switch (this.state.round.phase) {
+      case 'warmup': this.handleWarmupPhase(); break;
+      case 'freezetime': this.handleFreezeTimePhase(); break;
+      case 'live': this.handleLivePhase(deltaTime); break;
+      case 'planted': this.handlePlantedPhase(); break;
+      case 'ended': this.handleEndedPhase(); break;
+    }
+
+    this.notifyListeners();
+  }
+
+  private handleWarmupPhase(): void {
+    if (this.state.round.timeLeft <= 0) {
+      this.state.round.phase = 'freezetime';
+      this.state.round.timeLeft = 15;
+      this.notifyListeners();
+    }
+  }
+
+  private handleFreezeTimePhase(): void {
+    if (this.state.round.timeLeft <= 0) {
+      this.state.round.phase = 'live';
+      this.state.round.timeLeft = 115;
+      this.notifyListeners();
+    }
+  }
+
+  private handleLivePhase(deltaTime: number): void {
     ['t', 'ct'].forEach(side => {
       const team = this.state.teams[side as 't' | 'ct'];
       this.systems.movement.updatePositions(
@@ -549,20 +324,16 @@ export class GameController {
         this.state.round.phase,
         deltaTime,
         team.strategy,
-        this.currentCall
+        this.state.round.activeCall
       );
     });
 
-    // Process combat with strategy consideration
     const now = Date.now();
-    if (now - this.lastCombatProcess >= 500) {  // Process combat every 500ms
+    if (now - this.lastCombatProcess >= 500) {
       const combatResults = this.systems.combat.processCombatRound(
         [...this.state.teams.t.agents, ...this.state.teams.ct.agents],
         this.state,
-        {
-          t: this.state.teams.t.strategy,
-          ct: this.state.teams.ct.strategy
-        }
+        { t: this.state.teams.t.strategy, ct: this.state.teams.ct.strategy }
       );
 
       if (combatResults.length > 0) {
@@ -573,133 +344,241 @@ export class GameController {
       this.lastCombatProcess = now;
     }
 
-    this.notifyListeners();
+    if (this.state.round.timeLeft <= 0) {
+      this.endRound('ct', 'Time ran out');
+    }
   }
 
-  private processCombatResults(results: CombatResult[]): void {
+  private handlePlantedPhase(): void {
+    if (this.state.round.timeLeft <= 0) {
+      this.endRound('t', 'Bomb detonated');
+    }
+  }
+
+  private handleEndedPhase(): void {
+    if (this.shouldEndMatch()) {
+      this.endMatch();
+    } else {
+      this.startNextRound();
+    }
+  }
+
+  private processCombatResults(results: any[]): void {
     results.forEach(result => {
-      this.state.combatResult = result;
-      this.addEvent({
-        type: 'combat',
-        timestamp: Date.now(),
-        data: {
-          ...result,
-          round: this.state.match.currentRound
+      if (result.type === 'kill') {
+        const killer = this.findAgent(result.killerId);
+        const victim = this.findAgent(result.victimId);
+        
+        if (killer && victim) {
+          killer.matchStats.kills++;
+          victim.matchStats.deaths++;
+          victim.isAlive = false;
+          
+          this.state.events.push({
+            type: 'kill',
+            data: {
+              killer: killer.name,
+              victim: victim.name,
+              weapon: result.weapon
+            },
+            timestamp: Date.now()
+          });
         }
-      });
+      }
     });
+
+    this.state.combatResult = results[results.length - 1];
   }
 
   private checkRoundEnd(): void {
-    // Count alive players
-    const aliveCT = this.state.teams.ct.agents.filter(agent => agent.isAlive).length;
-    const aliveT = this.state.teams.t.agents.filter(agent => agent.isAlive).length;
+    const tAliveCount = this.state.teams.t.agents.filter(a => a.isAlive).length;
+    const ctAliveCount = this.state.teams.ct.agents.filter(a => a.isAlive).length;
 
-    // Check win conditions
-    if (this.state.round.bombPlanted) {
-      if (aliveCT === 0) {
-        this.endRound('t', 'All CT eliminated');
-      } else if (aliveT === 0) {
-        this.endRound('ct', 'All T eliminated and bomb defused');
+    if (tAliveCount === 0) {
+      this.endRound('ct', 'All terrorists eliminated');
+    } else if (ctAliveCount === 0) {
+      this.endRound('t', 'All counter-terrorists eliminated');
+    }
+  }
+
+  public handlePhaseEnd(): void {
+    switch (this.state.round.phase) {
+      case 'warmup':
+        this.state.round.phase = 'freezetime';
+        this.state.round.timeLeft = 15;
+        break;
+      case 'freezetime':
+        this.state.round.phase = 'live';
+        this.state.round.timeLeft = 115;
+        break;
+      case 'live':
+        if (!this.state.round.bombPlanted) {
+          this.endRound('ct', 'Time ran out');
+        }
+        break;
+      case 'planted':
+        this.endRound('t', 'Bomb detonated');
+        break;
+      case 'ended':
+        this.startNextRound();
+        break;
+    }
+    this.notifyListeners();
+  }
+
+  public updateTimer(): void {
+    if (this.state.round.timeLeft > 0) {
+      this.state.round.timeLeft--;
+      if (this.state.round.timeLeft === 0) {
+        this.handlePhaseEnd();
       }
-    } else {
-      if (aliveCT === 0) {
-        this.endRound('t', 'All CT eliminated');
-      } else if (aliveT === 0) {
-        this.endRound('ct', 'All T eliminated');
-      }
+      this.notifyListeners();
     }
   }
 
   private endRound(winner: 't' | 'ct', reason: string): void {
+    this.state.round.phase = 'ended';
     this.state.round.winner = winner;
     this.state.round.endReason = reason;
-    this.state.round.phase = 'ended';
     this.state.match.score[winner]++;
 
-    this.calculateRoundEndRewards(winner);
-    this.updateStrategyStats(winner);
+    const winningTeam = this.state.teams[winner];
+    winningTeam.roundWins++;
+    
+    const strategy = winningTeam.strategy;
+    winningTeam.strategyStats.roundsWonWithStrategy[strategy] = 
+      (winningTeam.strategyStats.roundsWonWithStrategy[strategy] || 0) + 1;
+    winningTeam.strategyStats.lastSuccessfulStrategy = strategy;
+    
+    const totalRoundsWithStrategy = Object.values(winningTeam.strategyStats.roundsWonWithStrategy)
+      .reduce((a, b) => a + b, 0);
+    winningTeam.strategyStats.strategySuccessRate = 
+      (winningTeam.strategyStats.roundsWonWithStrategy[strategy] || 0) / totalRoundsWithStrategy;
 
-    if (this.checkMatchEnd()) {
+    this.updateEconomy(winner);
+    this.notifyListeners();
+  }
+
+  private updateEconomy(roundWinner: 't' | 'ct'): void {
+    const loser = roundWinner === 't' ? 'ct' : 't';
+    
+    this.state.teams[roundWinner].money += 3250;
+    this.state.teams[loser].money += this.state.teams[loser].lossBonus;
+    this.state.teams[loser].lossBonus = Math.min(3400, this.state.teams[loser].lossBonus + 500);
+    this.state.teams[roundWinner].lossBonus = 1400;
+  }
+
+  private startNextRound(): void {
+    if (this.shouldEndMatch()) {
       this.endMatch();
+      return;
     }
+
+    this.state.match.currentRound++;
+    this.state.round = {
+      phase: 'freezetime',
+      timeLeft: 15,
+      bombPlanted: false,
+      bombSite: null,
+      plantTime: null,
+      winner: null,
+      endReason: null,
+      currentStrategy: {
+        t: this.state.teams.t.strategy,
+        ct: this.state.teams.ct.strategy
+      },
+      activeCall: null
+    };
+
+    ['t', 'ct'].forEach(side => {
+      this.state.teams[side as 't' | 'ct'].agents.forEach(agent => {
+        agent.isAlive = true;
+        agent.health = 100;
+        agent.armor = 0;
+      });
+    });
 
     this.notifyListeners();
   }
 
-  private calculateRoundEndRewards(winner: 't' | 'ct'): void {
-    const loser = winner === 't' ? 'ct' : 't';
-    
-    const winReward = 3250;
-    this.state.teams[winner].money = Math.min(16000, 
-      this.state.teams[winner].money + winReward
-    );
-
-    const lossReward = 1400 + (this.state.teams[loser].lossBonus * 500);
-    this.state.teams[loser].money = Math.min(16000, 
-      this.state.teams[loser].money + lossReward
-    );
-
-    // Update loss bonus
-    this.state.teams[loser].lossBonus = Math.min(4, this.state.teams[loser].lossBonus + 1);
-    this.state.teams[winner].lossBonus = 0;
-  }
-
-  private updateStrategyStats(winner: 't' | 'ct'): void {
-    const winningTeam = this.state.teams[winner];
-    const strategy = winningTeam.strategy;
-    winningTeam.strategyStats.roundsWonWithStrategy[strategy] = 
-      (winningTeam.strategyStats.roundsWonWithStrategy[strategy] || 0) + 1;
-    
-    const totalRoundsWithStrategy = this.state.match.currentRound;
-    winningTeam.strategyStats.strategySuccessRate = 
-      winningTeam.strategyStats.roundsWonWithStrategy[strategy] / totalRoundsWithStrategy;
-    
-    winningTeam.strategyStats.lastSuccessfulStrategy = strategy;
-  }
-
-  private checkMatchEnd(): boolean {
-    const { maxRounds, score } = this.state.match;
-    const halfRounds = maxRounds / 2;
-    
-    return (
-      score.t > halfRounds ||
-      score.ct > halfRounds ||
-      this.state.match.currentRound >= maxRounds
-    );
+  private shouldEndMatch(): boolean {
+    const { score, maxRounds } = this.state.match;
+    const roundsNeededToWin = Math.floor(maxRounds / 2) + 1;
+    return score.t >= roundsNeededToWin || 
+           score.ct >= roundsNeededToWin || 
+           this.state.match.currentRound >= maxRounds;
   }
 
   private endMatch(): void {
     this.state.match.status = 'ended';
     this.state.match.endTime = Date.now();
-    this.state.match.winner = 
-      this.state.match.score.t > this.state.match.score.ct ? 't' : 'ct';
+    
+    if (this.state.match.score.t > this.state.match.score.ct) {
+      this.state.match.winner = 't';
+    } else if (this.state.match.score.ct > this.state.match.score.t) {
+      this.state.match.winner = 'ct';
+    }
+    
+    this.stopGameLoop();
+    this.notifyListeners();
+  }
 
+  public updateStrategy(side: 't' | 'ct', strategy: string): void {
+    this.state.teams[side].strategy = strategy;
+    this.state.round.currentStrategy[side] = strategy;
+    this.notifyListeners();
+  }
+
+  public processMidRoundCall(side: 't' | 'ct', call: string): void {
+    this.state.round.activeCall = call;
+    this.notifyListeners();
+  }
+
+  public processBuy(side: 't' | 'ct', agentId: string, loadout: {
+    weapons: string[];
+    equipment: string[];
+    total: number;
+  }): void {
+    const agent = this.findAgent(agentId);
+    if (!agent || this.state.teams[side].money < loadout.total) return;
+
+    agent.weapons = loadout.weapons;
+    agent.equipment = loadout.equipment;
+    this.state.teams[side].money -= loadout.total;
+    
+    this.notifyListeners();
+  }
+
+  private findAgent(id: string): Agent | undefined {
+    return [...this.state.teams.t.agents, ...this.state.teams.ct.agents]
+      .find(agent => agent.id === id);
+  }
+
+  public stopGameLoop(): void {
     if (this.gameLoopInterval) {
       clearInterval(this.gameLoopInterval);
       this.gameLoopInterval = null;
     }
   }
 
-  private addEvent(event: Omit<Event, "timestamp">): void {
-    this.state.events.push({
-      ...event,
-      timestamp: Date.now()
-    });
+  public pauseMatch(): void {
+    this.state.match.status = 'paused';
+    this.stopGameLoop();
+    this.notifyListeners();
   }
 
-  private notifyListeners(): void {
-    this.listeners.forEach(listener => listener(this.state));
-  }
-
-  public subscribe(listener: (state: GameState) => void): () => void {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
+  public resumeMatch(): void {
+    this.state.match.status = 'active';
+    this.startGameLoop();
+    this.notifyListeners();
   }
 
   public getState(): GameState {
     return this.state;
   }
-}
 
-export default GameController;
+  public clearCombatResult(): void {
+    this.state.combatResult = null;
+    this.notifyListeners();
+  }
+}

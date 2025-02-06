@@ -1,4 +1,3 @@
-// MatchFlow.tsx
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -6,6 +5,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Swords, Timer, Trophy, AlertCircle } from 'lucide-react';
 
+// Type definitions
 interface Agent {
   id: string;
   name: string;
@@ -61,7 +61,8 @@ interface MatchFlowProps {
   onMidRoundCall: (team: 't' | 'ct', call: string) => void;
 }
 
-const PHASE_MESSAGES = {
+// Constants
+const PHASE_MESSAGES: Record<string, string> = {
   warmup: "Prepare for the round",
   freezetime: "Buy phase - Select your strategy",
   live: "Round in progress",
@@ -69,7 +70,7 @@ const PHASE_MESSAGES = {
   ended: "Round Over"
 };
 
-const STRATEGY_DESCRIPTIONS = {
+const STRATEGY_DESCRIPTIONS: Record<string, string> = {
   default: "Balanced setup with standard positions",
   rush_b: "Fast B execute with full team commitment",
   split_a: "Split attack through Long and Short A",
@@ -78,13 +79,29 @@ const STRATEGY_DESCRIPTIONS = {
   eco_rush: "Economic round with rushed strategy"
 };
 
+// Default state for error handling
+const DEFAULT_MATCH_STATE: MatchState = {
+  phase: 'warmup',
+  round: 1,
+  score: { t: 0, ct: 0 },
+  timeLeft: 0,
+  teams: {
+    t: { agents: [], strategyStats: { roundsWonWithStrategy: {}, strategySuccessRate: 0, lastSuccessfulStrategy: '' }},
+    ct: { agents: [], strategyStats: { roundsWonWithStrategy: {}, strategySuccessRate: 0, lastSuccessfulStrategy: '' }}
+  },
+  currentStrategy: { t: 'default', ct: 'default' },
+  activeCall: null
+};
+
+// Component definitions
 const PhaseIndicator: React.FC<{ phase: string; timeLeft: number }> = ({ 
   phase, 
   timeLeft 
 }) => (
   <Card className={`
     p-4 mb-4 flex justify-between items-center
-    ${phase === 'planted' ? 'bg-red-900' : 'bg-gray-800'}
+    ${phase === 'planted' ? 'bg-red-900/50' : 'bg-gray-800/50'}
+    backdrop-blur-sm transition-colors duration-200
   `}>
     <div className="flex items-center gap-2">
       {phase === 'planted' ? (
@@ -92,7 +109,7 @@ const PhaseIndicator: React.FC<{ phase: string; timeLeft: number }> = ({
       ) : (
         <Timer className="w-5 h-5" />
       )}
-      <span className="font-bold">{PHASE_MESSAGES[phase]}</span>
+      <span className="font-bold">{PHASE_MESSAGES[phase] || 'Unknown Phase'}</span>
     </div>
     <span className="text-xl font-mono">
       {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
@@ -100,11 +117,11 @@ const PhaseIndicator: React.FC<{ phase: string; timeLeft: number }> = ({
   </Card>
 );
 
-const TeamScore: React.FC<{ 
-  score: { t: number; ct: number }; 
-  round: number 
-}> = ({ score, round }) => (
-  <Card className="bg-gray-800 p-4 mb-4">
+const TeamScore: React.FC<{ score: { t: number; ct: number }; round: number }> = ({ 
+  score, 
+  round 
+}) => (
+  <Card className="bg-gray-800/50 backdrop-blur-sm p-4 mb-4">
     <div className="text-center">
       <div className="text-3xl font-bold mb-2">
         <span className="text-yellow-400">{score.t}</span>
@@ -129,17 +146,15 @@ const StrategyOverview: React.FC<{
   onStrategyChange,
   onMidRoundCall
 }) => (
-  <Card className="bg-gray-800 p-4 mb-4">
+  <Card className="bg-gray-800/50 backdrop-blur-sm p-4 mb-4">
     <div className="flex justify-between items-center mb-4">
       <div className="flex items-center gap-2">
         <Swords className="w-5 h-5" />
         <h3 className="font-bold">Strategy Overview</h3>
       </div>
-      {team.strategyStats && (
-        <span className="text-sm text-gray-400">
-          Success Rate: {Math.round(team.strategyStats.strategySuccessRate * 100)}%
-        </span>
-      )}
+      <span className="text-sm text-gray-400">
+        Success Rate: {Math.round((team.strategyStats?.strategySuccessRate || 0) * 100)}%
+      </span>
     </div>
 
     <div className="space-y-4">
@@ -147,7 +162,7 @@ const StrategyOverview: React.FC<{
         <div className="text-sm text-gray-400 mb-1">Current Strategy</div>
         <div className="font-medium">{strategy}</div>
         <div className="text-sm text-gray-400 mt-1">
-          {STRATEGY_DESCRIPTIONS[strategy]}
+          {STRATEGY_DESCRIPTIONS[strategy] || 'Strategy description not available'}
         </div>
       </div>
 
@@ -156,28 +171,28 @@ const StrategyOverview: React.FC<{
           <Button
             size="sm"
             onClick={() => onMidRoundCall('rotate_a')}
-            className="bg-blue-600 hover:bg-blue-700"
+            className="bg-blue-600 hover:bg-blue-700 transition-colors"
           >
             Rotate A
           </Button>
           <Button
             size="sm"
             onClick={() => onMidRoundCall('rotate_b')}
-            className="bg-blue-600 hover:bg-blue-700"
+            className="bg-blue-600 hover:bg-blue-700 transition-colors"
           >
             Rotate B
           </Button>
           <Button
             size="sm"
             onClick={() => onMidRoundCall('execute')}
-            className="bg-green-600 hover:bg-green-700"
+            className="bg-green-600 hover:bg-green-700 transition-colors"
           >
             Execute
           </Button>
           <Button
             size="sm"
             onClick={() => onMidRoundCall('hold')}
-            className="bg-yellow-600 hover:bg-yellow-700"
+            className="bg-yellow-600 hover:bg-yellow-700 transition-colors"
           >
             Hold Positions
           </Button>
@@ -207,16 +222,28 @@ const StrategyOverview: React.FC<{
 );
 
 const MatchFlow: React.FC<MatchFlowProps> = ({
-  matchState,
+  matchState = DEFAULT_MATCH_STATE,
   onPhaseEnd,
   onTimeUpdate,
   onStrategyChange,
   onMidRoundCall
 }) => {
+  // Error handling
+  if (!matchState || !matchState.teams) {
+    return (
+      <div className="p-4 text-center">
+        <p className="text-red-500">Error: Invalid match state</p>
+      </div>
+    );
+  }
+
+  // Timer effect with cleanup
   useEffect(() => {
     const timer = setInterval(() => {
-      onTimeUpdate();
-      if (matchState.timeLeft <= 0) {
+      if (typeof onTimeUpdate === 'function') {
+        onTimeUpdate();
+      }
+      if (matchState.timeLeft <= 0 && typeof onPhaseEnd === 'function') {
         onPhaseEnd();
       }
     }, 1000);

@@ -1,71 +1,175 @@
-import * as React from "react"
+"use client"
 
-const Dialog = ({ children, open, onClose }) => {
+import * as React from "react"
+import { cn } from "@/lib/utils"
+
+interface DialogProps {
+  children: React.ReactNode
+  open: boolean
+  onClose: () => void
+  size?: 'sm' | 'md' | 'lg' | 'xl'
+  closeOnOutsideClick?: boolean
+}
+
+const Dialog: React.FC<DialogProps> = ({
+  children,
+  open,
+  onClose,
+  size = 'md',
+  closeOnOutsideClick = true,
+}) => {
+  // Handle ESC key press
+  React.useEffect(() => {
+    const handleEscapeKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && open) {
+        onClose()
+      }
+    }
+
+    document.addEventListener('keydown', handleEscapeKey)
+    return () => document.removeEventListener('keydown', handleEscapeKey)
+  }, [open, onClose])
+
   if (!open) return null
 
+  const handleBackdropClick = (e: React.MouseEvent) => {
+    if (closeOnOutsideClick && e.target === e.currentTarget) {
+      onClose()
+    }
+  }
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/50">
-      <div className="fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 sm:rounded-lg">
+    <div
+      className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
+      onClick={handleBackdropClick}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className={cn(
+          "fixed left-[50%] top-[50%] z-50 grid w-full translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 sm:rounded-lg",
+          {
+            'max-w-sm': size === 'sm',
+            'max-w-lg': size === 'md',
+            'max-w-xl': size === 'lg',
+            'max-w-2xl': size === 'xl',
+          }
+        )}
+      >
         {children}
       </div>
     </div>
   )
 }
 
-const DialogContent = React.forwardRef<
-  HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement>
->(({ children, ...props }, ref) => (
-  <div ref={ref} {...props}>
-    {children}
-  </div>
-))
+interface DialogContentProps extends React.HTMLAttributes<HTMLDivElement> {
+  noPadding?: boolean
+}
+
+const DialogContent = React.forwardRef<HTMLDivElement, DialogContentProps>(
+  ({ children, className, noPadding, ...props }, ref) => (
+    <div
+      ref={ref}
+      className={cn(
+        "relative",
+        !noPadding && "px-4",
+        className
+      )}
+      {...props}
+    >
+      {children}
+    </div>
+  )
+)
 DialogContent.displayName = "DialogContent"
 
-const DialogHeader = ({
-  className,
-  ...props
-}: React.HTMLAttributes<HTMLDivElement>) => (
-  <div
-    className="flex flex-col space-y-1.5 text-center sm:text-left"
-    {...props}
-  />
+interface DialogHeaderProps extends React.HTMLAttributes<HTMLDivElement> {
+  centered?: boolean
+}
+
+const DialogHeader = React.forwardRef<HTMLDivElement, DialogHeaderProps>(
+  ({ className, centered, children, ...props }, ref) => (
+    <div
+      ref={ref}
+      className={cn(
+        "flex flex-col space-y-1.5",
+        centered ? "text-center" : "text-left",
+        className
+      )}
+      {...props}
+    >
+      {children}
+    </div>
+  )
 )
 DialogHeader.displayName = "DialogHeader"
 
-const DialogFooter = ({
-  className,
-  ...props
-}: React.HTMLAttributes<HTMLDivElement>) => (
-  <div
-    className="flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2"
-    {...props}
-  />
+interface DialogFooterProps extends React.HTMLAttributes<HTMLDivElement> {
+  justify?: 'start' | 'center' | 'end' | 'between'
+}
+
+const DialogFooter = React.forwardRef<HTMLDivElement, DialogFooterProps>(
+  ({ className, justify = 'end', children, ...props }, ref) => (
+    <div
+      ref={ref}
+      className={cn(
+        "flex flex-col-reverse sm:flex-row gap-2",
+        {
+          'sm:justify-start': justify === 'start',
+          'sm:justify-center': justify === 'center',
+          'sm:justify-end': justify === 'end',
+          'sm:justify-between': justify === 'between',
+        },
+        className
+      )}
+      {...props}
+    >
+      {children}
+    </div>
+  )
 )
 DialogFooter.displayName = "DialogFooter"
 
-const DialogTitle = React.forwardRef<
-  HTMLHeadingElement,
-  React.HTMLAttributes<HTMLHeadingElement>
->(({ className, ...props }, ref) => (
-  <h2
-    ref={ref}
-    className="text-lg font-semibold leading-none tracking-tight"
-    {...props}
-  />
-))
+interface DialogTitleProps extends React.HTMLAttributes<HTMLHeadingElement> {
+  size?: 'sm' | 'md' | 'lg'
+}
+
+const DialogTitle = React.forwardRef<HTMLHeadingElement, DialogTitleProps>(
+  ({ className, size = 'md', ...props }, ref) => (
+    <h2
+      ref={ref}
+      className={cn(
+        "font-semibold leading-none tracking-tight",
+        {
+          'text-base': size === 'sm',
+          'text-lg': size === 'md',
+          'text-xl': size === 'lg',
+        },
+        className
+      )}
+      {...props}
+    />
+  )
+)
 DialogTitle.displayName = "DialogTitle"
 
-const DialogDescription = React.forwardRef<
-  HTMLParagraphElement,
-  React.HTMLAttributes<HTMLParagraphElement>
->(({ className, ...props }, ref) => (
-  <p
-    ref={ref}
-    className="text-sm text-muted-foreground"
-    {...props}
-  />
-))
+interface DialogDescriptionProps extends React.HTMLAttributes<HTMLParagraphElement> {
+  truncate?: boolean
+}
+
+const DialogDescription = React.forwardRef<HTMLParagraphElement, DialogDescriptionProps>(
+  ({ className, truncate, ...props }, ref) => (
+    <p
+      ref={ref}
+      className={cn(
+        "text-sm text-muted-foreground",
+        truncate && "truncate",
+        className
+      )}
+      {...props}
+    />
+  )
+)
 DialogDescription.displayName = "DialogDescription"
 
 export {
@@ -75,4 +179,10 @@ export {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  type DialogProps,
+  type DialogContentProps,
+  type DialogHeaderProps,
+  type DialogFooterProps,
+  type DialogTitleProps,
+  type DialogDescriptionProps,
 }

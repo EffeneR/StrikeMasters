@@ -63,8 +63,24 @@ interface RoomUIProps {
   onReady: () => void;
   onStrategySelect?: (strategy: string) => void;
 }
+const STRATEGIES = {
+  default: "Default Setup",
+  rush_b: "Rush B Execute",
+  split_a: "Split A Attack",
+  mid_control: "Mid Control",
+  eco_rush: "Economy Rush",
+  default_defense: "Default Defense",
+  aggressive_mid: "Aggressive Mid Control",
+  stack_a: "Stack A Site",
+  stack_b: "Stack B Site",
+  retake_setup: "Retake Setup"
+} as const;
 
-const StatBar: React.FC<{ label: string; value: number; color?: string }> = ({
+const StatBar: React.FC<{ 
+  label: string; 
+  value: number; 
+  color?: string;
+}> = ({
   label,
   value,
   color = 'bg-blue-500'
@@ -73,12 +89,12 @@ const StatBar: React.FC<{ label: string; value: number; color?: string }> = ({
     <span className="text-sm text-gray-400 w-24">{label}</span>
     <div className="flex-1 bg-gray-700 h-2 rounded-full overflow-hidden">
       <div 
-        className={`h-full ${color}`} 
+        className={`h-full ${color} transition-all duration-300`} 
         style={{ width: `${Math.round(value * 100)}%` }}
       />
     </div>
-    <span className="text-sm text-gray-300 w-12">
-      {Math.round(value * 100)}
+    <span className="text-sm text-gray-300 w-12 text-right">
+      {Math.round(value * 100)}%
     </span>
   </div>
 );
@@ -95,6 +111,13 @@ const AgentCard: React.FC<{ agent: Agent }> = ({ agent }) => {
       case 'Lurker': return <Clock className="w-4 h-4 text-purple-400" />;
       default: return null;
     }
+  };
+
+  const getStatColor = (value: number): string => {
+    if (value >= 0.8) return 'bg-green-500';
+    if (value >= 0.6) return 'bg-blue-500';
+    if (value >= 0.4) return 'bg-yellow-500';
+    return 'bg-red-500';
   };
 
   return (
@@ -114,12 +137,36 @@ const AgentCard: React.FC<{ agent: Agent }> = ({ agent }) => {
         {showDetails && (
           <div className="mt-4 space-y-2">
             <div className="grid grid-cols-2 gap-4 mb-4">
-              <StatBar label="Aim" value={agent.stats.aim} color="bg-red-500" />
-              <StatBar label="Reaction" value={agent.stats.reaction} color="bg-yellow-500" />
-              <StatBar label="Positioning" value={agent.stats.positioning} color="bg-green-500" />
-              <StatBar label="Utility" value={agent.stats.utility} color="bg-blue-500" />
-              <StatBar label="Leadership" value={agent.stats.leadership} color="bg-purple-500" />
-              <StatBar label="Clutch" value={agent.stats.clutch} color="bg-orange-500" />
+              <StatBar 
+                label="Aim" 
+                value={agent.stats.aim} 
+                color={getStatColor(agent.stats.aim)}
+              />
+              <StatBar 
+                label="Reaction" 
+                value={agent.stats.reaction} 
+                color={getStatColor(agent.stats.reaction)}
+              />
+              <StatBar 
+                label="Positioning" 
+                value={agent.stats.positioning} 
+                color={getStatColor(agent.stats.positioning)}
+              />
+              <StatBar 
+                label="Utility" 
+                value={agent.stats.utility} 
+                color={getStatColor(agent.stats.utility)}
+              />
+              <StatBar 
+                label="Leadership" 
+                value={agent.stats.leadership} 
+                color={getStatColor(agent.stats.leadership)}
+              />
+              <StatBar 
+                label="Clutch" 
+                value={agent.stats.clutch} 
+                color={getStatColor(agent.stats.clutch)}
+              />
             </div>
 
             {agent.strategyStats && (
@@ -128,12 +175,12 @@ const AgentCard: React.FC<{ agent: Agent }> = ({ agent }) => {
                 <StatBar 
                   label="Strategy Adherence" 
                   value={agent.strategyStats.strategyAdherence} 
-                  color="bg-blue-400"
+                  color={getStatColor(agent.strategyStats.strategyAdherence)}
                 />
                 <StatBar 
                   label="Impact Rating" 
                   value={agent.strategyStats.impactRating} 
-                  color="bg-green-400"
+                  color={getStatColor(agent.strategyStats.impactRating)}
                 />
               </div>
             )}
@@ -169,7 +216,6 @@ const AgentCard: React.FC<{ agent: Agent }> = ({ agent }) => {
     </Card>
   );
 };
-
 const TeamStats: React.FC<{ team: Team }> = ({ team }) => {
   if (!team.strategyStats) return null;
 
@@ -187,7 +233,7 @@ const TeamStats: React.FC<{ team: Team }> = ({ team }) => {
         <StatBar 
           label="Strategy Success" 
           value={team.strategyStats.strategySuccessRate} 
-          color="bg-green-500"
+          color={team.strategyStats.strategySuccessRate >= 0.6 ? 'bg-green-500' : 'bg-yellow-500'}
         />
 
         <div className="border-t border-gray-700 pt-4">
@@ -199,51 +245,83 @@ const TeamStats: React.FC<{ team: Team }> = ({ team }) => {
             >
               <div className="flex items-center gap-2">
                 {index === 0 && <Medal className="w-4 h-4 text-yellow-400" />}
-                <span className="text-sm">{strategy}</span>
+                <span className="text-sm">{STRATEGIES[strategy as keyof typeof STRATEGIES] || strategy}</span>
               </div>
               <span className="text-sm text-green-400">{wins} wins</span>
             </div>
           ))}
         </div>
+
+        {team.strategyStats.lastSuccessfulStrategy && (
+          <div className="text-sm text-gray-400 mt-2">
+            Last Successful: {STRATEGIES[team.strategyStats.lastSuccessfulStrategy as keyof typeof STRATEGIES]}
+          </div>
+        )}
       </div>
     </Card>
   );
 };
 
 const RoomUI: React.FC<RoomUIProps> = ({ team, onReady, onStrategySelect }) => {
+  const [selectedStrategy, setSelectedStrategy] = useState<string>('default');
+
+  const handleStrategySelect = (strategy: string) => {
+    setSelectedStrategy(strategy);
+    onStrategySelect?.(strategy);
+  };
+
   return (
-    <div className="p-4 max-w-4xl mx-auto">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold">{team.name}</h2>
-        <Button onClick={onReady} className="bg-green-600 hover:bg-green-700">
-          Ready
-          <ChevronRight className="ml-2 w-4 h-4" />
-        </Button>
-      </div>
-
-      {team.strategyStats && <TeamStats team={team} />}
-
-      {onStrategySelect && (
-        <div className="mb-6">
-          <Select onValueChange={onStrategySelect}>
-            <SelectTrigger className="w-full bg-gray-800">
-              <SelectValue placeholder="Select Initial Strategy" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="default">Default Setup</SelectItem>
-              <SelectItem value="rush_b">Rush B</SelectItem>
-              <SelectItem value="split_a">Split A</SelectItem>
-              <SelectItem value="mid_control">Mid Control</SelectItem>
-              <SelectItem value="eco_rush">Eco Rush</SelectItem>
-            </SelectContent>
-          </Select>
+    <div className="min-h-screen bg-gray-900 text-white">
+      <div className="p-4 max-w-4xl mx-auto">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-2xl font-bold">{team.name}</h2>
+          <Button 
+            onClick={onReady} 
+            className="bg-green-600 hover:bg-green-700 transition-colors"
+          >
+            Ready
+            <ChevronRight className="ml-2 w-4 h-4" />
+          </Button>
         </div>
-      )}
 
-      <div className="space-y-4">
-        {team.agents.map(agent => (
-          <AgentCard key={agent.id} agent={agent} />
-        ))}
+        {team.strategyStats && <TeamStats team={team} />}
+
+        {onStrategySelect && (
+          <Card className="bg-gray-800 p-4 mb-6">
+            <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+              <Swords className="w-5 h-5" />
+              Strategy Selection
+            </h3>
+            
+            <Select 
+              value={selectedStrategy}
+              onValueChange={handleStrategySelect}
+            >
+              <SelectTrigger className="w-full bg-gray-700">
+                <SelectValue placeholder="Select Initial Strategy" />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(STRATEGIES).map(([value, label]) => (
+                  <SelectItem key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {selectedStrategy && (
+              <p className="text-sm text-gray-400 mt-2">
+                Selected: {STRATEGIES[selectedStrategy as keyof typeof STRATEGIES]}
+              </p>
+            )}
+          </Card>
+        )}
+
+        <div className="grid gap-4">
+          {team.agents.map(agent => (
+            <AgentCard key={agent.id} agent={agent} />
+          ))}
+        </div>
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 // RoomLobby.tsx
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { 
@@ -23,7 +23,6 @@ import {
 } from 'lucide-react';
 import { useGame } from '@/components/game-provider';
 
-// Keep all your existing interfaces
 interface Agent {
   id: string;
   name: string;
@@ -57,7 +56,6 @@ interface GameConfig {
   difficulty: 'easy' | 'medium' | 'hard';
 }
 
-// Keep your existing MAP_STRATEGIES constant
 const MAP_STRATEGIES = {
   t_side: [
     { value: 'default', label: 'Default Setup' },
@@ -74,12 +72,21 @@ const MAP_STRATEGIES = {
     { value: 'stack_b', label: 'Stack B' },
     { value: 'retake_setup', label: 'Retake Setup' }
   ]
+} as const;
+const STRATEGY_DESCRIPTIONS: Record<string, string> = {
+  default: "Balanced setup with standard positions",
+  rush_b: "Fast B execute with full team commitment",
+  split_a: "Split attack through Long and Short A",
+  mid_control: "Secure mid control before site hit",
+  fake_a_b: "Fake presence at A before B execute",
+  eco_rush: "Economic round with rushed strategy",
+  aggressive_mid: "Control mid with aggressive positioning",
+  stack_a: "Stack multiple players on A site",
+  stack_b: "Stack multiple players on B site",
+  retake_setup: "Setup for retake scenarios"
 };
 
-const RoomLobby: React.FC<RoomLobbyProps> = ({ 
-  playerTeam, 
-  onStart 
-}) => {
+const RoomLobby: React.FC<RoomLobbyProps> = ({ playerTeam, onStart }) => {
   const { controller } = useGame();
   const [config, setConfig] = useState<GameConfig>({
     maxRounds: 24,
@@ -91,8 +98,9 @@ const RoomLobby: React.FC<RoomLobbyProps> = ({
   const [showTeamDetails, setShowTeamDetails] = useState(true);
   const [showStrategyDetails, setShowStrategyDetails] = useState(true);
 
-  // Keep all your existing utility functions
   const getTeamStrength = (team: Team): number => {
+    if (!team.agents.length) return 0;
+
     const totalStats = team.agents.reduce((sum, agent) => (
       sum + 
       agent.stats.aim +
@@ -114,70 +122,6 @@ const RoomLobby: React.FC<RoomLobbyProps> = ({
     }
   };
 
-  const getStrategyDescription = (strategy: string): string => {
-    const descriptions = {
-      default: "Balanced setup with standard positions",
-      rush_b: "Fast B execute with full team commitment",
-      split_a: "Split attack through Long and Short A",
-      mid_control: "Secure mid control before site hit",
-      fake_a_b: "Fake presence at A before B execute",
-      eco_rush: "Economic round with rushed strategy",
-      aggressive_mid: "Control mid with aggressive positioning",
-      stack_a: "Stack multiple players on A site",
-      stack_b: "Stack multiple players on B site",
-      retake_setup: "Setup for retake scenarios"
-    };
-    return descriptions[strategy] || "Custom strategy setup";
-  };
-
-  // Add new initialization logic
-  const handleStartMatch = async () => {
-    try {
-      // Initialize player team
-      const initializedPlayerTeam = playerTeam.agents.map(agent => ({
-        ...agent,
-        team: config.startingSide,
-        position: { x: 60, y: 180 },
-        health: 100,
-        armor: 0,
-        weapons: ['glock'],
-        equipment: [],
-        matchStats: {
-          kills: 0,
-          deaths: 0,
-          assists: 0,
-          utilityDamage: 0,
-          flashAssists: 0
-        },
-        strategyStats: {
-          utilityUsage: 0,
-          positioningScore: 0,
-          strategyAdherence: 0,
-          impactRating: 0
-        },
-        isAlive: true
-      }));
-
-      // Generate bot team
-      const botTeam = generateBotTeam(config);
-
-      // Initialize through controller
-      await controller.initializeMatch({
-        playerTeam: initializedPlayerTeam,
-        botTeam,
-        config: {
-          ...config,
-          startTime: Date.now(),
-          matchId: Math.random().toString(36).substr(2, 9)
-        }
-      });
-
-      onStart(config);
-    } catch (error) {
-      console.error('Error starting match:', error);
-    }
-  };
-
   const generateBotTeam = (config: GameConfig) => {
     const difficultyModifier = getDifficultyModifier(config.difficulty);
     const botRoles = ['Entry Fragger', 'Support', 'In-Game Leader', 'Support', 'Entry Fragger'];
@@ -190,7 +134,7 @@ const RoomLobby: React.FC<RoomLobbyProps> = ({
       position: { x: 60, y: 180 },
       health: 100,
       armor: 0,
-      weapons: ['glock'],
+      weapons: [config.startingSide === 't' ? 'glock' : 'usp'],
       equipment: [],
       isAlive: true,
       stats: {
@@ -217,7 +161,49 @@ const RoomLobby: React.FC<RoomLobbyProps> = ({
     }));
   };
 
-  // Keep your existing component functions
+  const handleStartMatch = async () => {
+    try {
+      const initializedPlayerTeam = playerTeam.agents.map(agent => ({
+        ...agent,
+        team: config.startingSide,
+        position: { x: config.startingSide === 't' ? 60 : 230, y: 180 },
+        health: 100,
+        armor: 0,
+        weapons: [config.startingSide === 't' ? 'glock' : 'usp'],
+        equipment: [],
+        matchStats: {
+          kills: 0,
+          deaths: 0,
+          assists: 0,
+          utilityDamage: 0,
+          flashAssists: 0
+        },
+        strategyStats: {
+          utilityUsage: 0,
+          positioningScore: 0,
+          strategyAdherence: 0,
+          impactRating: 0
+        },
+        isAlive: true
+      }));
+
+      const botTeam = generateBotTeam(config);
+
+      await controller.initializeMatch({
+        playerTeam: initializedPlayerTeam,
+        botTeam,
+        config: {
+          ...config,
+          startTime: Date.now(),
+          matchId: Math.random().toString(36).substr(2, 9)
+        }
+      });
+
+      onStart(config);
+    } catch (error) {
+      console.error('Error starting match:', error);
+    }
+  };
   const TeamDisplay = () => (
     <Card className="bg-gray-800 p-6 mb-4">
       <div 
@@ -312,14 +298,13 @@ const RoomLobby: React.FC<RoomLobbyProps> = ({
               </SelectContent>
             </Select>
             <p className="text-sm text-gray-400 mt-2">
-              {getStrategyDescription(config.initialStrategy)}
+              {STRATEGY_DESCRIPTIONS[config.initialStrategy]}
             </p>
           </div>
         </div>
       )}
     </Card>
   );
-
   const MatchSetup = () => (
     <Card className="bg-gray-800 p-6">
       <div className="flex items-center gap-2 mb-4">
@@ -373,21 +358,25 @@ const RoomLobby: React.FC<RoomLobbyProps> = ({
   );
 
   return (
-    <div className="p-4 max-w-4xl mx-auto">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold">Match Setup</h2>
-        <Button 
-          onClick={handleStartMatch}
-          className="bg-green-600 hover:bg-green-700"
-        >
-          Start Match
-          <ChevronRight className="ml-2 w-4 h-4" />
-        </Button>
-      </div>
+    <div className="min-h-screen bg-gray-900 text-white">
+      <div className="p-4 max-w-4xl mx-auto">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-2xl font-bold">Match Setup</h2>
+          <Button 
+            onClick={handleStartMatch}
+            className="bg-green-600 hover:bg-green-700"
+          >
+            Start Match
+            <ChevronRight className="ml-2 w-4 h-4" />
+          </Button>
+        </div>
 
-      <TeamDisplay />
-      <StrategySetup />
-      <MatchSetup />
+        <div className="space-y-4">
+          <TeamDisplay />
+          <StrategySetup />
+          <MatchSetup />
+        </div>
+      </div>
     </div>
   );
 };

@@ -1,4 +1,3 @@
-// page.tsx
 'use client';
 
 import React, { useState } from 'react';
@@ -60,6 +59,11 @@ interface Agent {
 interface Team {
   agents: Agent[];
   strategy?: string;
+  strategyStats: {
+    roundsWonWithStrategy: { [key: string]: number };
+    strategySuccessRate: number;
+    lastSuccessfulStrategy: string;
+  };
 }
 
 const generateDefaultStats = (
@@ -111,10 +115,7 @@ const GameContent: React.FC = () => {
   const handleMatchStart = async (config: GameConfig) => {
     if (!selectedTeam) return;
     try {
-      // Generate bot team
       const botTeam = generateBotTeam(config);
-
-      // Initialize player team
       const playerTeam = selectedTeam.agents.map(agent => ({
         ...agent,
         team: config.startingSide,
@@ -140,7 +141,35 @@ const GameContent: React.FC = () => {
         }
       }));
 
-      // Initialize match
+      const initialMatchState = {
+        phase: 'warmup' as const,
+        round: 1,
+        score: { t: 0, ct: 0 },
+        timeLeft: 0,
+        teams: {
+          t: {
+            agents: config.startingSide === 't' ? playerTeam : botTeam,
+            strategyStats: {
+              roundsWonWithStrategy: {},
+              strategySuccessRate: 0,
+              lastSuccessfulStrategy: ''
+            }
+          },
+          ct: {
+            agents: config.startingSide === 'ct' ? playerTeam : botTeam,
+            strategyStats: {
+              roundsWonWithStrategy: {},
+              strategySuccessRate: 0,
+              lastSuccessfulStrategy: ''
+            }
+          }
+        },
+        currentStrategy: {
+          t: 'DEFAULT',
+          ct: 'DEFAULT'
+        }
+      };
+
       await controller.initializeMatch({
         playerTeam,
         botTeam,
@@ -148,10 +177,10 @@ const GameContent: React.FC = () => {
           ...config,
           startTime: Date.now(),
           matchId: Math.random().toString(36).substr(2, 9)
-        }
+        },
+        initialState: initialMatchState
       });
 
-      // Start game loop and set state
       controller.startGameLoop();
       setGameInitialized(true);
       setView('match');
@@ -200,12 +229,34 @@ const GameContent: React.FC = () => {
   };
 
   const renderMatchView = () => {
-    if (!state || !gameInitialized) return null;
+    if (!state || !gameInitialized) {
+      return <div>Loading match...</div>;
+    }
 
     return (
       <div>
         <MatchFlow
-          matchState={state}
+          matchState={{
+            ...state,
+            teams: {
+              t: {
+                ...state.teams.t,
+                strategyStats: state.teams.t?.strategyStats || {
+                  roundsWonWithStrategy: {},
+                  strategySuccessRate: 0,
+                  lastSuccessfulStrategy: ''
+                }
+              },
+              ct: {
+                ...state.teams.ct,
+                strategyStats: state.teams.ct?.strategyStats || {
+                  roundsWonWithStrategy: {},
+                  strategySuccessRate: 0,
+                  lastSuccessfulStrategy: ''
+                }
+              }
+            }
+          }}
           onPhaseEnd={() => controller.handlePhaseEnd()}
           onTimeUpdate={() => controller.updateTimer()}
           onStrategyChange={(side: 't' | 'ct', strategy: string) => 

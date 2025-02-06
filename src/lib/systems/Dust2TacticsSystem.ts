@@ -1,3 +1,4 @@
+// Dust2TacticsSystem.ts
 interface Position {
   x: number;
   y: number;
@@ -23,6 +24,16 @@ class Dust2TacticsSystem {
   private midRoundCalls: { [key: string]: StrategySetup };
 
   constructor() {
+    this.initializeMapPositions();
+    this.initializeStrategies();
+    this.initializeMidRoundCalls();
+  }
+
+  public initialize(gameState: any): void {
+    console.log('Dust2TacticsSystem initialized');
+  }
+
+  private initializeMapPositions(): void {
     this.mapPositions = {
       t_spawn: { x: 60, y: 180 },
       t_mid: { x: 120, y: 150 },
@@ -39,7 +50,9 @@ class Dust2TacticsSystem {
       catwalk: { x: 180, y: 120 },
       xbox: { x: 130, y: 130 }
     };
+  }
 
+  private initializeStrategies(): void {
     this.strategies = {
       t_side: {
         default: {
@@ -146,7 +159,9 @@ class Dust2TacticsSystem {
         }
       }
     };
+  }
 
+  private initializeMidRoundCalls(): void {
     this.midRoundCalls = {
       rotate_a: {
         positions: {
@@ -178,31 +193,39 @@ class Dust2TacticsSystem {
     };
   }
 
-  getPositionForAgent(agent: any, phase: string, currentCall?: string) {
+  getPositionForAgent(agent: any, phase: string, strategy: string): Position {
     const side = agent.team;
-    const sideKey = `${side}_side`;
+    const sideKey = `${side}_side` as 't_side' | 'ct_side';
     
-    // Handle mid-round calls first
-    if (phase === 'live' && currentCall && this.midRoundCalls[currentCall]) {
-      const callPosition = this.midRoundCalls[currentCall].positions[agent.role];
-      if (callPosition && callPosition[0] !== 'current') {
-        return this.mapPositions[callPosition[0]];
-      }
-    }
+    // Get strategy positions
+    const currentStrategy = this.strategies[sideKey]?.[strategy || 'default'];
+    if (!currentStrategy) return this.getDefaultPosition(agent);
 
-    // Otherwise use current strategy
-    const strategy = this.strategies[sideKey]?.[agent.strategy || 'default'];
-    if (!strategy) return this.getDefaultPosition(agent);
-
-    const positions = strategy.positions[agent.role];
+    const positions = currentStrategy.positions[agent.role];
     if (!positions) return this.getDefaultPosition(agent);
 
-    let positionIndex = this.getPhasePositionIndex(phase);
+    const positionIndex = this.getPhasePositionIndex(phase);
     const positionName = positions[Math.min(positionIndex, positions.length - 1)];
     return this.mapPositions[positionName] || this.getDefaultPosition(agent);
   }
 
-  getPhasePositionIndex(phase: string): number {
+  getPositionForRotate(agent: any, site: 'A' | 'B'): Position {
+    const call = site === 'A' ? 'rotate_a' : 'rotate_b';
+    const positions = this.midRoundCalls[call]?.positions[agent.role];
+    if (!positions || positions[0] === 'current') return agent.position;
+    return this.mapPositions[positions[0]] || this.getDefaultPosition(agent);
+  }
+
+  getPositionForExecute(agent: any, site: 'A' | 'B'): Position {
+    const targetPosition = site === 'A' ? 'a_site' : 'b_platform';
+    return this.mapPositions[targetPosition] || this.getDefaultPosition(agent);
+  }
+
+  getPositionForFallback(agent: any): Position {
+    return this.getSpawnPosition(agent.team);
+  }
+
+  private getPhasePositionIndex(phase: string): number {
     switch (phase) {
       case 'freezetime': return 0;
       case 'live': return 1;
@@ -220,8 +243,8 @@ class Dust2TacticsSystem {
     return this.mapPositions[side === 't' ? 't_spawn' : 'ct_spawn'];
   }
 
-  getUtilityForPosition(agent: any, position: any): string[] {
-    const side = `${agent.team}_side`;
+  getUtilityForPosition(agent: any, position: string): string[] {
+    const side = `${agent.team}_side` as 't_side' | 'ct_side';
     const strategy = this.strategies[side]?.[agent.strategy || 'default'];
     return strategy?.utility?.[agent.role] || [];
   }

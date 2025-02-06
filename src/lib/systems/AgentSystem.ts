@@ -110,6 +110,13 @@ class AgentSystem {
     }
   };
 
+  constructor() {}
+
+  public initialize(gameState: any): void {
+    // Initialize any necessary state
+    console.log('AgentSystem initialized');
+  }
+
   generateAgent(team: 't' | 'ct', preferredRole?: string): Agent {
     const stats = this.generateStats();
     const role = preferredRole || this.determineOptimalRole(stats);

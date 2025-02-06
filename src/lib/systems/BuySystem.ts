@@ -1,3 +1,4 @@
+// BuySystem.ts
 interface Weapon {
   cost: number;
   type: 'pistol' | 'smg' | 'rifle' | 'sniper';
@@ -27,6 +28,17 @@ class BuySystem {
   private buyStrategies: Record<string, BuyStrategy>;
 
   constructor() {
+    this.initializeWeapons();
+    this.initializeEquipment();
+    this.initializeBuyStrategies();
+  }
+
+  public initialize(gameState: any): void {
+    // Initialize any state-dependent variables
+    console.log('BuySystem initialized');
+  }
+
+  private initializeWeapons(): void {
     this.weapons = {
       // Pistols
       glock: { cost: 200, type: 'pistol', preference: ['Entry Fragger'] },
@@ -42,7 +54,9 @@ class BuySystem {
       m4a4: { cost: 3100, type: 'rifle', preference: ['Support', 'In-Game Leader'] },
       awp: { cost: 4750, type: 'sniper', preference: ['AWPer'] }
     };
+  }
 
+  private initializeEquipment(): void {
     this.equipment = {
       kevlar: { cost: 650, priority: 1 },
       helmet: { cost: 350, priority: 2 },
@@ -51,7 +65,9 @@ class BuySystem {
       smoke: { cost: 300, priority: 5 },
       molotov: { cost: 400, priority: 6 }
     };
+  }
 
+  private initializeBuyStrategies(): void {
     this.buyStrategies = {
       eco: {
         maxSpend: 2000,

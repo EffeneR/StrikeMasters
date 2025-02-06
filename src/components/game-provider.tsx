@@ -1,8 +1,9 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
 import GameController from '@/lib/GameController';
 
+// Core Interfaces
 interface Position {
   x: number;
   y: number;
@@ -132,55 +133,71 @@ export const GameProvider: React.FC<GameProviderProps> = ({
 
   useEffect(() => {
     if (initialState) {
-      controller.setState(initialState);
+      try {
+        controller.setState(initialState);
+      } catch (error) {
+        console.error('Failed to set initial state:', error);
+      }
     }
 
     const unsubscribe = controller.subscribe((newState: GameState) => {
-      setGameState(newState);
+      setGameState((prevState) => {
+        if (JSON.stringify(prevState) === JSON.stringify(newState)) {
+          return prevState;
+        }
+        return newState;
+      });
     });
 
     return () => {
       unsubscribe();
-      if (controller) {
-        controller.stopGameLoop();
-      }
+      controller?.stopGameLoop();
     };
   }, [controller, initialState]);
 
-  const value: GameContextType = {
+  const startMatch = useCallback(async (config: {
+    playerTeam: Agent[],
+    botTeam: Agent[],
+    config: GameConfig
+  }) => {
+    try {
+      await controller.initializeMatch(config);
+      controller.startGameLoop();
+    } catch (error) {
+      console.error('Failed to start match:', error);
+      throw new Error('Match initialization failed');
+    }
+  }, [controller]);
+
+  const updateStrategy = useCallback((side: 't' | 'ct', strategy: string) => {
+    try {
+      if (gameState?.teams[side]) {
+        controller.updateStrategy(side, strategy);
+      }
+    } catch (error) {
+      console.error('Failed to update strategy:', error);
+      throw new Error('Strategy update failed');
+    }
+  }, [controller, gameState]);
+
+  const processBuy = useCallback((side: 't' | 'ct', agentId: string, loadout: any) => {
+    try {
+      controller.processBuy(side, agentId, loadout);
+    } catch (error) {
+      console.error('Failed to process buy:', error);
+      throw new Error('Buy processing failed');
+    }
+  }, [controller]);
+
+  const value = useMemo<GameContextType>(() => ({
     state: gameState,
     controller,
     actions: {
-      startMatch: (config: {
-        playerTeam: Agent[],
-        botTeam: Agent[],
-        config: GameConfig
-      }) => {
-        try {
-          controller.initializeMatch(config);
-          controller.startGameLoop();
-        } catch (error) {
-          console.error('Failed to start match:', error);
-        }
-      },
-      updateStrategy: (side: 't' | 'ct', strategy: string) => {
-        try {
-          if (gameState?.teams[side]) {
-            controller.updateStrategy(side, strategy);
-          }
-        } catch (error) {
-          console.error('Failed to update strategy:', error);
-        }
-      },
-      processBuy: (side: 't' | 'ct', agentId: string, loadout: any) => {
-        try {
-          controller.processBuy(side, agentId, loadout);
-        } catch (error) {
-          console.error('Failed to process buy:', error);
-        }
-      }
+      startMatch,
+      updateStrategy,
+      processBuy
     }
-  };
+  }), [gameState, controller, startMatch, updateStrategy, processBuy]);
 
   return (
     <GameContext.Provider value={value}>
@@ -200,17 +217,19 @@ export function useGame(): GameContextType {
 export function useGameState<T>(selector: (state: GameState) => T): T | null {
   const { state } = useGame();
   if (!state) return null;
-  return selector(state);
+  try {
+    return selector(state);
+  } catch (error) {
+    console.error('Error in selector:', error);
+    return null;
+  }
 }
 
 export function isValidGameState(state: any): state is GameState {
-  return (
-    state &&
-    typeof state === 'object' &&
-    'match' in state &&
-    'round' in state &&
-    'teams' in state
-  );
+  if (!state || typeof state !== 'object') return false;
+  
+  const requiredKeys = ['match', 'round', 'teams'];
+  return requiredKeys.every(key => key in state);
 }
 
 export default GameProvider;

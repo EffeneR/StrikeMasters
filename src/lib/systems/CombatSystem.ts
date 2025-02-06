@@ -79,6 +79,10 @@ class CombatSystem {
     killer: string;
   }> = new Map();
 
+  public initialize(gameState: any): void {
+    // Initialize combat system state
+    this.lastDeaths.clear();
+  }
   processCombatRound(
     agents: Agent[],
     state: any,
@@ -214,7 +218,6 @@ class CombatSystem {
 
     return null;
   }
-
   private processUtilityUsage(
     attacker: Agent,
     targets: Agent[],
@@ -306,7 +309,6 @@ class CombatSystem {
 
     return Math.floor(baseDamage * distanceMultiplier * armorMultiplier);
   }
-
   private findValidTargets(attacker: Agent, agents: Agent[]): Agent[] {
     return agents.filter(target => 
       target.team !== attacker.team &&

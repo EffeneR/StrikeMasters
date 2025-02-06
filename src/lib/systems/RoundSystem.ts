@@ -38,6 +38,17 @@ class RoundSystem {
     endReason: string;
   }[] = [];
 
+  private currentState: RoundState | null = null;
+
+  constructor() {
+    this.resetHistory();
+  }
+
+  public initialize(gameState: any): void {
+    this.currentState = this.initializeRound();
+    console.log('RoundSystem initialized');
+  }
+
   initializeRound(): RoundState {
     return {
       phase: 'warmup',
@@ -78,6 +89,8 @@ class RoundSystem {
         case 'planted':
           return this.endRound(state, 't', 'Bomb detonated');
         case 'ended':
+          return state;
+        default:
           return state;
       }
     }
@@ -124,7 +137,7 @@ class RoundSystem {
         t: {
           strategy: tStrategy,
           success: winner === 't',
-          kills: 0, // These would be updated from combat system
+          kills: 0,
           objectives: state.bombPlanted,
           roundTime: this.ROUND_TIME - state.timeLeft
         },
@@ -214,6 +227,11 @@ class RoundSystem {
 
   resetHistory(): void {
     this.roundHistory = [];
+    this.currentState = null;
+  }
+
+  getCurrentState(): RoundState | null {
+    return this.currentState;
   }
 }
 
