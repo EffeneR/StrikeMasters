@@ -126,14 +126,13 @@ export default class GameController {
       tactics: new Dust2TacticsSystem()
     };
 
-    // Initialize with default state including score
     this.state = {
       match: {
         id: '',
         status: 'pending',
         currentRound: 0,
         maxRounds: 30,
-        score: { t: 0, ct: 0 }, // Ensure score is initialized
+        score: { t: 0, ct: 0 },
         winner: null,
         startTime: null,
         endTime: null
@@ -160,7 +159,6 @@ export default class GameController {
       combatResult: null
     };
 
-    // Initialize all systems with default state
     Object.values(this.systems).forEach(system => system.initialize(this.state));
   }
 
@@ -204,7 +202,6 @@ export default class GameController {
   }): void {
     console.log("Initializing match with config:", config);
 
-    // Create a complete state object atomically
     const newState: GameState = {
       match: {
         id: config.config.matchId,
@@ -262,16 +259,9 @@ export default class GameController {
       combatResult: null
     };
 
-    // Assign new state atomically
     this.state = newState;
-
-    // Initialize all systems with new state
     Object.values(this.systems).forEach(system => system.initialize(this.state));
-
-    // Start game loop
     this.startGameLoop();
-    
-    // Notify listeners of state change
     this.notifyListeners();
   }
 
