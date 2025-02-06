@@ -314,13 +314,10 @@ const MatchFlow: React.FC<MatchFlowProps> = ({
       if (typeof onTimeUpdate === 'function') {
         onTimeUpdate();
       }
-      if (safeMatchState.timeLeft <= 0 && typeof onPhaseEnd === 'function') {
-        onPhaseEnd();
-      }
-    }, 1000);
-
+    }, 1000); // Update every second
+  
     return () => clearInterval(timer);
-  }, [safeMatchState.timeLeft, onPhaseEnd, onTimeUpdate]);
+  }, [onTimeUpdate]);
 
   return (
     <div className="max-w-4xl mx-auto p-4">

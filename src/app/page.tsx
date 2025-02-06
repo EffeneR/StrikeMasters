@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react'; // Added useEffect
 import { GameProvider, useGame } from '@/components/game-provider';
 import AgentManager from '@/components/game/AgentManager';
 import MatchView from '@/components/game/MatchView';
@@ -8,6 +8,7 @@ import RoomLobby from '@/components/game/RoomLobby';
 import MatchFlow from '@/components/game/MatchFlow';
 import { Button } from '@/components/ui/button';
 import { GameConfig, Position, AgentStats, Agent, Team } from '@/types/game';
+import { toast } from 'sonner'; // Add toast for notifications
 
 const generateDefaultStats = (
   difficulty: number = 0.7,
@@ -49,6 +50,15 @@ const GameContent: React.FC = () => {
   const [view, setView] = useState<'menu' | 'agents' | 'lobby' | 'match'>('menu');
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
   const [gameInitialized, setGameInitialized] = useState(false);
+
+  // Cleanup effect when component unmounts
+  useEffect(() => {
+    return () => {
+      if (controller) {
+        controller.stopGameLoop();
+      }
+    };
+  }, [controller]);
 
   const handleTeamSelection = (team: Team) => {
     setSelectedTeam(team);
@@ -95,7 +105,10 @@ const GameContent: React.FC = () => {
   };
 
   const handleMatchStart = async (config: GameConfig) => {
-    if (!selectedTeam) return;
+    if (!selectedTeam) {
+      toast.error('No team selected');
+      return;
+    }
 
     try {
       const botTeam = generateBotTeam(config);
@@ -124,91 +137,76 @@ const GameContent: React.FC = () => {
         }
       }));
 
-      const initialMatchState = {
-        phase: 'warmup' as const,
-        round: 1,
-        score: { t: 0, ct: 0 },
-        timeLeft: 0,
-        teams: {
-          t: {
-            agents: config.startingSide === 't' ? playerTeam : botTeam,
-            strategyStats: {
-              roundsWonWithStrategy: {},
-              strategySuccessRate: 0,
-              lastSuccessfulStrategy: ''
-            }
-          },
-          ct: {
-            agents: config.startingSide === 'ct' ? playerTeam : botTeam,
-            strategyStats: {
-              roundsWonWithStrategy: {},
-              strategySuccessRate: 0,
-              lastSuccessfulStrategy: ''
-            }
-          }
-        },
-        currentStrategy: {
-          t: 'DEFAULT',
-          ct: 'DEFAULT'
-        }
-      };
-
       await controller.initializeMatch({
         playerTeam,
         botTeam,
         config: {
           ...config,
-          startTime: Date.now(),
           matchId: Math.random().toString(36).substr(2, 9)
-        },
-        initialState: initialMatchState
+        }
       });
 
       controller.startGameLoop();
       setGameInitialized(true);
       setView('match');
+      toast.success('Match started successfully');
     } catch (error) {
       console.error('Failed to initialize match:', error);
+      toast.error('Failed to start match');
+    }
+  };
+
+  const handlePhaseEnd = () => {
+    try {
+      controller.handlePhaseEnd();
+    } catch (error) {
+      console.error('Error handling phase end:', error);
+      toast.error('Error during phase transition');
+    }
+  };
+
+  const handleTimeUpdate = () => {
+    try {
+      controller.updateTimer();
+    } catch (error) {
+      console.error('Error updating timer:', error);
+      toast.error('Error updating game timer');
+    }
+  };
+
+  const handleStrategyChange = (side: 't' | 'ct', strategy: string) => {
+    try {
+      controller.updateStrategy(side, strategy);
+      toast.success(`Strategy updated for ${side.toUpperCase()} team`);
+    } catch (error) {
+      console.error('Error updating strategy:', error);
+      toast.error('Failed to update strategy');
+    }
+  };
+
+  const handleMidRoundCall = (side: 't' | 'ct', call: string) => {
+    try {
+      controller.makeMidRoundCall(side, call);
+      toast.success(`Mid-round call made: ${call}`);
+    } catch (error) {
+      console.error('Error making mid-round call:', error);
+      toast.error('Failed to make mid-round call');
     }
   };
 
   const renderMatchView = () => {
     if (!state || !gameInitialized) {
-      return <div>Loading match...</div>;
+      return <div className="flex justify-center items-center h-screen">Loading match...</div>;
     }
 
     return (
-      <div>
+      <div className="relative">
         <MatchFlow
-          matchState={{
-            ...state,
-            teams: {
-              t: {
-                ...state.teams.t,
-                strategyStats: state.teams.t?.strategyStats || {
-                  roundsWonWithStrategy: {},
-                  strategySuccessRate: 0,
-                  lastSuccessfulStrategy: ''
-                }
-              },
-              ct: {
-                ...state.teams.ct,
-                strategyStats: state.teams.ct?.strategyStats || {
-                  roundsWonWithStrategy: {},
-                  strategySuccessRate: 0,
-                  lastSuccessfulStrategy: ''
-                }
-              }
-            }
-          }}
-          onPhaseEnd={() => controller.handlePhaseEnd()}
-          onTimeUpdate={() => controller.updateTimer()}
-          onStrategyChange={(side: 't' | 'ct', strategy: string) => 
-            controller.updateStrategy(side, strategy)
-          }
-          onMidRoundCall={(side: 't' | 'ct', call: string) => 
-            controller.processMidRoundCall(side, call)
-          }
+          matchState={state}
+          onPhaseEnd={handlePhaseEnd}
+          onTimeUpdate={handleTimeUpdate}
+          onStrategyChange={handleStrategyChange}
+          onMidRoundCall={handleMidRoundCall}
         />
         <MatchView />
       </div>
