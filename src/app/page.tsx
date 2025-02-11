@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react'; // Added useEffect
+import React, { useState, useEffect } from 'react';
 import { GameProvider, useGame } from '@/components/game-provider';
 import AgentManager from '@/components/game/AgentManager';
 import MatchView from '@/components/game/MatchView';
@@ -8,7 +8,7 @@ import RoomLobby from '@/components/game/RoomLobby';
 import MatchFlow from '@/components/game/MatchFlow';
 import { Button } from '@/components/ui/button';
 import { GameConfig, Position, AgentStats, Agent, Team } from '@/types/game';
-import { toast } from 'sonner'; // Add toast for notifications
+import { toast } from 'sonner';
 
 const generateDefaultStats = (
   difficulty: number = 0.7,
@@ -47,12 +47,13 @@ const generateDefaultStats = (
 
 const GameContent: React.FC = () => {
   const { state, controller } = useGame();
+  const [mounted, setMounted] = useState(false);
   const [view, setView] = useState<'menu' | 'agents' | 'lobby' | 'match'>('menu');
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
   const [gameInitialized, setGameInitialized] = useState(false);
 
-  // Cleanup effect when component unmounts
   useEffect(() => {
+    setMounted(true);
     return () => {
       if (controller) {
         controller.stopGameLoop();
@@ -61,6 +62,7 @@ const GameContent: React.FC = () => {
   }, [controller]);
 
   const handleTeamSelection = (team: Team) => {
+    if (!mounted) return;
     setSelectedTeam(team);
     setView('lobby');
   };
@@ -105,8 +107,8 @@ const GameContent: React.FC = () => {
   };
 
   const handleMatchStart = async (config: GameConfig) => {
-    if (!selectedTeam) {
-      toast.error('No team selected');
+    if (!mounted || !controller || !selectedTeam) {
+      toast.error('Game not ready');
       return;
     }
 
@@ -157,6 +159,7 @@ const GameContent: React.FC = () => {
   };
 
   const handlePhaseEnd = () => {
+    if (!mounted || !controller) return;
     try {
       controller.handlePhaseEnd();
     } catch (error) {
@@ -166,6 +169,7 @@ const GameContent: React.FC = () => {
   };
 
   const handleTimeUpdate = () => {
+    if (!mounted || !controller) return;
     try {
       controller.updateTimer();
     } catch (error) {
@@ -175,6 +179,7 @@ const GameContent: React.FC = () => {
   };
 
   const handleStrategyChange = (side: 't' | 'ct', strategy: string) => {
+    if (!mounted || !controller) return;
     try {
       controller.updateStrategy(side, strategy);
       toast.success(`Strategy updated for ${side.toUpperCase()} team`);
@@ -185,6 +190,7 @@ const GameContent: React.FC = () => {
   };
 
   const handleMidRoundCall = (side: 't' | 'ct', call: string) => {
+    if (!mounted || !controller) return;
     try {
       controller.makeMidRoundCall(side, call);
       toast.success(`Mid-round call made: ${call}`);
@@ -195,7 +201,7 @@ const GameContent: React.FC = () => {
   };
 
   const renderMatchView = () => {
-    if (!state || !gameInitialized) {
+    if (!mounted || !state || !gameInitialized) {
       return <div className="flex justify-center items-center h-screen">Loading match...</div>;
     }
 
@@ -212,6 +218,10 @@ const GameContent: React.FC = () => {
       </div>
     );
   };
+
+  if (!mounted) {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">
@@ -248,10 +258,22 @@ const GameContent: React.FC = () => {
   );
 };
 
-const Home: React.FC = () => (
-  <GameProvider>
-    <GameContent />
-  </GameProvider>
-);
+const Home: React.FC = () => {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) {
+    return null;
+  }
+
+  return (
+    <GameProvider>
+      <GameContent />
+    </GameProvider>
+  );
+};
 
 export default Home;

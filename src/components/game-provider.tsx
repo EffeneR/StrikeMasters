@@ -1,8 +1,17 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
+import React, { 
+  createContext, 
+  useCallback, 
+  useContext, 
+  useEffect, 
+  useMemo, 
+  useState 
+} from 'react';
+import { toast } from 'sonner';
 import GameController from '@/lib/GameController';
 
+// Keep all your existing interfaces
 interface Position {
   x: number;
   y: number;
@@ -98,6 +107,34 @@ interface GameConfig {
   difficulty: string;
 }
 
+interface GameContextType {
+  state: GameState;
+  controller: GameController;
+  actions: {
+    startMatch: (config: {
+      playerTeam: Agent[];
+      botTeam: Agent[];
+      config: GameConfig;
+    }) => Promise<void>;
+    updateStrategy: (side: 't' | 'ct', strategy: string) => void;
+    processBuy: (side: 't' | 'ct', agentId: string, loadout: {
+      weapons: string[];
+      equipment: string[];
+      total: number;
+    }) => void;
+    makeMidRoundCall: (side: 't' | 'ct', call: string) => void;
+    pauseMatch: () => void;
+    resumeMatch: () => void;
+    endMatch: () => void;
+    clearCombatResult: () => void;
+  };
+}
+
+interface GameProviderProps {
+  children: React.ReactNode;
+  initialState?: Partial<GameState>;
+}
+
 const defaultGameState: GameState = {
   match: {
     id: '',
@@ -117,7 +154,7 @@ const defaultGameState: GameState = {
     plantTime: null,
     winner: null,
     endReason: null,
-    currentStrategy: {  // Ensure this is properly initialized
+    currentStrategy: {
       t: 'default',
       ct: 'default'
     },
@@ -155,88 +192,86 @@ const defaultGameState: GameState = {
   combatResult: null
 };
 
-interface GameContextType {
-  state: GameState | null;
-  controller: GameController;
-  actions: {
-    startMatch: (config: {
-      playerTeam: Agent[],
-      botTeam: Agent[],
-      config: GameConfig
-    }) => Promise<void>;
-    updateStrategy: (side: 't' | 'ct', strategy: string) => void;
-    processBuy: (side: 't' | 'ct', agentId: string, loadout: {
-      weapons: string[];
-      equipment: string[];
-      total: number;
-    }) => void;
-    makeMidRoundCall: (side: 't' | 'ct', call: string) => void;
-    pauseMatch: () => void;
-    resumeMatch: () => void;
-    endMatch: () => void;
-    clearCombatResult: () => void;
-  };
-}
-
 const GameContext = createContext<GameContextType | null>(null);
-
-interface GameProviderProps {
-  children: React.ReactNode;
-  initialState?: Partial<GameState>;
-}
 
 export const GameProvider: React.FC<GameProviderProps> = ({ 
   children, 
   initialState 
 }) => {
-  const [controller] = useState(() => new GameController());
+  const [mounted, setMounted] = useState(false);
+  const [controller, setController] = useState<GameController | null>(null);
   const [gameState, setGameState] = useState<GameState>(() => ({
     ...defaultGameState,
     ...initialState
   }));
 
+  // Handle mounting
   useEffect(() => {
-    controller.setState(gameState);
-
-    const unsubscribe = controller.subscribe((newState: GameState) => {
-      setGameState((prevState) => {
-        if (JSON.stringify(prevState) === JSON.stringify(newState)) {
-          return prevState;
-        }
-        return newState;
-      });
-    });
-
-    if (initialState) {
-      controller.startGameLoop();
-    }
+    setMounted(true);
+    const newController = new GameController();
+    setController(newController);
 
     return () => {
-      controller.stopGameLoop();
-      unsubscribe();
+      newController.stopGameLoop();
     };
-  }, [controller, initialState]);
+  }, []);
+
+  // Handle game state
+  useEffect(() => {
+    if (!controller || !mounted) return;
+
+    try {
+      controller.setState(gameState);
+
+      const unsubscribe = controller.subscribe((newState: GameState) => {
+        setGameState((prevState) => {
+          if (JSON.stringify(prevState) === JSON.stringify(newState)) {
+            return prevState;
+          }
+          return newState;
+        });
+      });
+
+      if (initialState) {
+        controller.startGameLoop();
+      }
+
+      return () => {
+        controller.stopGameLoop();
+        unsubscribe();
+      };
+    } catch (error) {
+      console.error('Game controller initialization error:', error);
+      toast.error('Failed to initialize game controller');
+    }
+  }, [controller, initialState, mounted]);
 
   const startMatch = useCallback(async (config: {
     playerTeam: Agent[],
     botTeam: Agent[],
     config: GameConfig
   }) => {
+    if (!controller) return;
+    
     try {
       await controller.initializeMatch(config);
       controller.startGameLoop();
+      toast.success('Match started successfully');
     } catch (error) {
       console.error('Failed to start match:', error);
+      toast.error('Failed to start match');
       throw new Error('Match initialization failed');
     }
   }, [controller]);
 
   const updateStrategy = useCallback((side: 't' | 'ct', strategy: string) => {
+    if (!controller) return;
+
     try {
       controller.updateStrategy(side, strategy);
     } catch (error) {
       console.error('Failed to update strategy:', error);
-      throw new Error('Strategy update failed');
+      toast.error('Failed to update strategy');
     }
   }, [controller]);
 
@@ -245,62 +280,76 @@ export const GameProvider: React.FC<GameProviderProps> = ({
     equipment: string[];
     total: number;
   }) => {
+    if (!controller) return;
+
     try {
       controller.processBuy(side, agentId, loadout);
     } catch (error) {
       console.error('Failed to process buy:', error);
-      throw new Error('Buy processing failed');
+      toast.error('Failed to process buy');
     }
   }, [controller]);
 
   const makeMidRoundCall = useCallback((side: 't' | 'ct', call: string) => {
+    if (!controller) return;
+
     try {
       controller.makeMidRoundCall(side, call);
     } catch (error) {
       console.error('Failed to make mid-round call:', error);
-      throw new Error('Mid-round call failed');
+      toast.error('Failed to make mid-round call');
     }
   }, [controller]);
 
   const pauseMatch = useCallback(() => {
+    if (!controller) return;
+
     try {
       controller.pauseMatch();
+      toast.info('Match paused');
     } catch (error) {
       console.error('Failed to pause match:', error);
-      throw new Error('Match pause failed');
+      toast.error('Failed to pause match');
     }
   }, [controller]);
 
   const resumeMatch = useCallback(() => {
+    if (!controller) return;
+
     try {
       controller.resumeMatch();
+      toast.success('Match resumed');
     } catch (error) {
       console.error('Failed to resume match:', error);
-      throw new Error('Match resume failed');
+      toast.error('Failed to resume match');
     }
   }, [controller]);
 
   const endMatch = useCallback(() => {
+    if (!controller) return;
+
     try {
       controller.endMatch();
     } catch (error) {
       console.error('Failed to end match:', error);
-      throw new Error('Match end failed');
+      toast.error('Failed to end match');
     }
   }, [controller]);
 
   const clearCombatResult = useCallback(() => {
+    if (!controller) return;
+
     try {
       controller.clearCombatResult();
     } catch (error) {
       console.error('Failed to clear combat result:', error);
-      throw new Error('Clear combat result failed');
+      toast.error('Failed to clear combat result');
     }
   }, [controller]);
 
-  const value = useMemo<GameContextType>(() => ({
+  const value = useMemo(() => ({
     state: gameState,
-    controller,
+    controller: controller!,
     actions: {
       startMatch,
       updateStrategy,
@@ -324,6 +373,10 @@ export const GameProvider: React.FC<GameProviderProps> = ({
     clearCombatResult
   ]);
 
+  if (!mounted || !controller) {
+    return null;
+  }
+
   return (
     <GameContext.Provider value={value}>
       {children}
@@ -331,7 +384,7 @@ export const GameProvider: React.FC<GameProviderProps> = ({
   );
 };
 
-export function useGame(): GameContextType {
+export function useGame() {
   const context = useContext(GameContext);
   if (!context) {
     throw new Error('useGame must be used within a GameProvider');

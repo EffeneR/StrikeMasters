@@ -1,5 +1,3 @@
-// src/lib/GameController.ts
-
 import CombatSystem from '@/lib/systems/CombatSystem';
 import MovementSystem from '@/lib/systems/MovementSystem';
 import RoundSystem from '@/lib/systems/RoundSystem';
@@ -125,7 +123,6 @@ interface GameState {
   events: GameEvent[];
   combatResult: CombatResult | null;
 }
-
 export default class GameController {
   private static instance: GameController | null = null;
   private state: GameState;
@@ -230,26 +227,28 @@ export default class GameController {
   }
 
   private setupErrorHandlers(): void {
-    window.addEventListener('error', (event) => {
-      console.error('Game controller error:', event.error);
-      this.pauseMatch();
-      toast.error('Game error detected');
-    });
-  }
-
-  public setState(newState: Partial<GameState>): void {
-    try {
+    // Check if code is running in browser environment
+    if (typeof window !== 'undefined') {
+      window.addEventListener('error', (event) => {
+        console.error('Game controller error:', event.error);
+        this.pauseMatch();
+        toast.error('Game error detected');
+      });
+    }
+}
+public setState(newState: Partial<GameState>): void {
+  try {
       const timestamp = Date.now();
       if (timestamp - this.lastStateUpdate < this.updateThrottle) return;
 
       this.state = { ...this.state, ...newState };
       this.lastStateUpdate = timestamp;
       this.notifyListeners();
-    } catch (error) {
+  } catch (error) {
       console.error('Error setting game state:', error);
       toast.error('Failed to update game state');
-    }
   }
+}
 
   public subscribe(listener: (state: GameState) => void): () => void {
     this.listeners.add(listener);

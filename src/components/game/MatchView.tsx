@@ -141,6 +141,18 @@ interface CombatResult {
 }
 
 // Constants
+
+import { T_STRATEGIES, CT_STRATEGIES, MID_ROUND_CALLS } from '../types/game';
+
+// Example usage
+const handleStrategyChange = (team: Team, strategyId: string) => {
+  const strategies = team === 't' ? T_STRATEGIES : CT_STRATEGIES;
+  const strategy = strategies[strategyId];
+  if (strategy) {
+    // Update strategy logic
+  }
+};
+
 const T_STRATEGIES = {
   default: "Default Setup",
   rush_b: "Rush B",
