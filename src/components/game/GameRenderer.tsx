@@ -1,9 +1,11 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { Card } from '@/components/ui/card';
 import { useGame } from '@/components/game-provider';
 import { toast } from 'sonner';
+import { cn } from "@/lib/utils";
+import type { GameState, Position, Agent, GameEvent, Team } from '@/types/game';
 
 // Map constants
 const MAP_POSITIONS = {
@@ -46,29 +48,9 @@ const MAP_PATHS = {
   mid_control: "M 60,180 Q 120,150 150,150 T 180,120"
 } as const;
 
-interface Position {
-  x: number;
-  y: number;
-}
-
-interface Agent {
-  id: string;
-  name: string;
-  team: 't' | 'ct';
-  isAlive: boolean;
-  position: Position;
-  role: string;
-  weapons?: string[];
-  equipment?: string[];
-  health?: number;
-  armor?: number;
-}
-
-interface GameEvent {
-  type: 'flash' | 'smoke' | 'fire' | 'kill' | 'utility';
-  position: Position;
-  subType?: string;
-  timestamp?: number;
+interface GameRendererProps {
+  className?: string;
+  gameState: GameState;
 }
 
 const AgentDot: React.FC<{ agent: Agent }> = ({ agent }) => {
@@ -76,7 +58,6 @@ const AgentDot: React.FC<{ agent: Agent }> = ({ agent }) => {
   const color = agent.team === 't' ? '#ff4444' : '#4444ff';
   const glowColor = agent.team === 't' ? 'rgba(255,68,68,0.3)' : 'rgba(68,68,255,0.3)';
   
-  // Health indicator color
   const healthColor = agent.health && agent.health > 0 
     ? `hsl(${agent.health}, 100%, 50%)`
     : '#666';
@@ -208,7 +189,7 @@ const EventEffect: React.FC<{ event: GameEvent }> = ({ event }) => {
     if (event.timestamp) {
       const timeoutId = setTimeout(() => {
         setIsVisible(false);
-      }, event.type === 'smoke' ? 15000 : 5000);
+      }, event.type === 'damage' ? 15000 : 5000);
       
       return () => clearTimeout(timeoutId);
     }
@@ -216,12 +197,14 @@ const EventEffect: React.FC<{ event: GameEvent }> = ({ event }) => {
 
   if (!isVisible) return null;
 
+  const position = event.location || { x: 0, y: 0 };
+
   switch (event.type) {
-    case 'flash':
+    case 'damage':
       return (
         <circle
-          cx={event.position.x}
-          cy={event.position.y}
+          cx={position.x}
+          cy={position.y}
           r="15"
           fill="#fff"
           opacity="0.5"
@@ -236,46 +219,12 @@ const EventEffect: React.FC<{ event: GameEvent }> = ({ event }) => {
           />
         </circle>
       );
-    case 'smoke':
-      return (
-        <circle
-          cx={event.position.x}
-          cy={event.position.y}
-          r="20"
-          fill="#888"
-          opacity="0.7"
-        >
-          <animate
-            attributeName="r"
-            values="18;20;18"
-            dur="2s"
-            repeatCount="indefinite"
-          />
-        </circle>
-      );
-    case 'fire':
-      return (
-        <circle
-          cx={event.position.x}
-          cy={event.position.y}
-          r="15"
-          fill="#f44"
-          opacity="0.5"
-        >
-          <animate
-            attributeName="r"
-            values="13;15;13"
-            dur="0.5s"
-            repeatCount="indefinite"
-          />
-        </circle>
-      );
     case 'kill':
       return (
         <g>
           <circle
-            cx={event.position.x}
-            cy={event.position.y}
+            cx={position.x}
+            cy={position.y}
             r="10"
             fill="none"
             stroke="#ff0000"
@@ -298,8 +247,8 @@ const EventEffect: React.FC<{ event: GameEvent }> = ({ event }) => {
             />
           </circle>
           <text
-            x={event.position.x}
-            y={event.position.y - 20}
+            x={position.x}
+            y={position.y - 20}
             textAnchor="middle"
             fill="#ff0000"
             fontSize="14"
@@ -341,15 +290,19 @@ const getStrategyZones = (strategy: string) => {
   }
 };
 
-const GameRenderer: React.FC = () => {
-  const { gameState } = useGame();
+const GameRenderer: React.FC<GameRendererProps> = ({ className, gameState }) => {
   const [positions, setPositions] = useState<Record<string, Position>>({});
   const [tacticalLines, setTacticalLines] = useState<string[]>([]);
+
+  const allAgents = useMemo(() => {
+    if (!gameState?.teams) return [];
+    return [...gameState.teams.t.agents, ...gameState.teams.ct.agents];
+  }, [gameState?.teams]);
 
   useEffect(() => {
     try {
       const newPositions: Record<string, Position> = {};
-      gameState.agents.forEach((agent) => {
+      allAgents.forEach((agent) => {
         if (agent.position) {
           newPositions[agent.id] = agent.position;
         }
@@ -359,14 +312,20 @@ const GameRenderer: React.FC = () => {
       console.error('Error updating positions:', error);
       toast.error('Failed to update agent positions');
     }
-  }, [gameState.agents]);
+  }, [allAgents]);
 
   useEffect(() => {
     try {
       const lines: string[] = [];
-      if (gameState.phase === 'freezetime' || gameState.phase === 'live') {
-        if (gameState.currentStrategy in MAP_PATHS) {
-          lines.push(MAP_PATHS[gameState.currentStrategy as keyof typeof MAP_PATHS]);
+      if (gameState.round.phase === 'freezetime' || gameState.round.phase === 'live') {
+        const tStrategy = gameState.round.currentStrategy.t;
+        const ctStrategy = gameState.round.currentStrategy.ct;
+        
+        if (tStrategy in MAP_PATHS) {
+          lines.push(MAP_PATHS[tStrategy as keyof typeof MAP_PATHS]);
+        }
+        if (ctStrategy in MAP_PATHS) {
+          lines.push(MAP_PATHS[ctStrategy as keyof typeof MAP_PATHS]);
         }
       }
       setTacticalLines(lines);
@@ -374,10 +333,20 @@ const GameRenderer: React.FC = () => {
       console.error('Error updating tactical lines:', error);
       toast.error('Failed to update tactical lines');
     }
-  }, [gameState.currentStrategy, gameState.phase]);
+  }, [gameState.round.currentStrategy, gameState.round.phase]);
+
+  if (!gameState || !gameState.teams || !gameState.round) {
+    return (
+      <Card className={cn("w-full aspect-square bg-gray-900 p-4", className)}>
+        <div className="flex items-center justify-center h-full text-red-500">
+          Invalid game state
+        </div>
+      </Card>
+    );
+  }
 
   return (
-    <Card className="w-full aspect-square bg-gray-900 p-4">
+    <Card className={cn("w-full aspect-square bg-gray-900 p-4", className)}>
       <svg 
         viewBox="0 0 300 300" 
         className="w-full h-full"
@@ -392,11 +361,6 @@ const GameRenderer: React.FC = () => {
               <feMergeNode in="SourceGraphic"/>
             </feMerge>
           </filter>
-
-          <linearGradient id="strategyGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#ffd700" stopOpacity="0.6"/>
-            <stop offset="100%" stopColor="#ffd700" stopOpacity="0.2"/>
-          </linearGradient>
         </defs>
 
         <MapLayout />
@@ -416,11 +380,11 @@ const GameRenderer: React.FC = () => {
         ))}
 
         {/* Strategy Zones */}
-        {gameState.phase === 'live' && gameState.currentStrategy !== 'default' && (
-          <g className="strategy-zones">
-            {getStrategyZones(gameState.currentStrategy).map((zone, i) => (
+        {gameState.round.phase === 'live' && (
+          <>
+            {getStrategyZones(gameState.round.currentStrategy.t).map((zone, i) => (
               <circle
-                key={`zone-${i}`}
+                key={`t-zone-${i}`}
                 cx={zone.x}
                 cy={zone.y}
                 r={zone.radius}
@@ -429,7 +393,18 @@ const GameRenderer: React.FC = () => {
                 className="animate-pulse"
               />
             ))}
-          </g>
+            {getStrategyZones(gameState.round.currentStrategy.ct).map((zone, i) => (
+              <circle
+                key={`ct-zone-${i}`}
+                cx={zone.x}
+                cy={zone.y}
+                r={zone.radius}
+                fill={zone.color}
+                opacity="0.15"
+                className="animate-pulse"
+              />
+            ))}
+          </>
         )}
 
         {/* Events */}
@@ -438,12 +413,12 @@ const GameRenderer: React.FC = () => {
         ))}
 
         {/* Agents */}
-        {gameState.agents.map((agent) => (
+        {allAgents.map((agent) => (
           <AgentDot key={agent.id} agent={agent} />
         ))}
 
         {/* Round Timer */}
-        {gameState.phase !== 'ended' && (
+        {gameState.round.phase !== 'ended' && (
           <text
             x="150"
             y="40"
@@ -452,22 +427,35 @@ const GameRenderer: React.FC = () => {
             fontSize="20"
             className="font-bold"
           >
-            {Math.floor(gameState.roundTime / 60)}:{(gameState.roundTime % 60).toString().padStart(2, '0')}
+            {Math.floor(gameState.round.timeLeft / 60)}:
+            {(gameState.round.timeLeft % 60).toString().padStart(2, '0')}
           </text>
         )}
 
-        {/* Strategy Label */}
-        {gameState.phase === 'freezetime' && gameState.currentStrategy !== 'default' && (
-          <text
-            x="150"
-            y="20"
-            textAnchor="middle"
-            fill="#ffd700"
-            fontSize="14"
-            className="font-bold"
-          >
-            {gameState.currentStrategy.toUpperCase()} STRATEGY
-          </text>
+        {/* Strategy Labels */}
+        {gameState.round.phase === 'freezetime' && (
+          <>
+            <text
+              x="150"
+              y="20"
+              textAnchor="middle"
+              fill="#ffd700"
+              fontSize="14"
+              className="font-bold"
+            >
+              T: {gameState.round.currentStrategy.t.toUpperCase()}
+            </text>
+            <text
+              x="150"
+              y="60"
+              textAnchor="middle"
+              fill="#4444ff"
+              fontSize="14"
+              className="font-bold"
+            >
+              CT: {gameState.round.currentStrategy.ct.toUpperCase()}
+            </text>
+          </>
         )}
       </svg>
     </Card>
