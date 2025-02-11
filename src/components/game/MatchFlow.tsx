@@ -4,7 +4,10 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Swords, Timer, Trophy, AlertCircle } from 'lucide-react';
+import { toast } from 'sonner';
+import { cn } from "@/lib/utils";
 
+// Interfaces
 interface Agent {
   id: string;
   name: string;
@@ -58,8 +61,153 @@ interface MatchFlowProps {
   onTimeUpdate: () => void;
   onStrategyChange: (team: 't' | 'ct', strategy: string) => void;
   onMidRoundCall: (team: 't' | 'ct', call: string) => void;
-}
+}const MatchFlow: React.FC<MatchFlowProps> = ({
+  matchState,
+  onPhaseEnd,
+  onTimeUpdate,
+  onStrategyChange,
+  onMidRoundCall
+}) => {
+  const [lastPhase, setLastPhase] = useState(matchState.phase);
+  const [errorState, setErrorState] = useState<string | null>(null);
+  const handlePhaseChange = (phase: MatchState['phase']) => {
 
+  useEffect(() => {
+    if (matchState.phase !== lastPhase) {
+      setLastPhase(matchState.phase);
+      handlePhaseChange(matchState.phase);
+    }
+  }, [matchState.phase, lastPhase, onPhaseEnd]);
+
+  const handlePhaseChange = (phase: string) => {
+    try {
+      onPhaseEnd();
+      if (phase === 'ended') {
+        toast.success('Round complete!');
+      }
+    } catch (error) {
+      setErrorState('Error handling phase change');
+      toast.error('Failed to process phase change');
+    }
+  };
+
+  const handleStrategySelect = (team: 't' | 'ct', strategy: string) => {
+    try {
+      if (matchState.phase !== 'freezetime') {
+        toast.error('Strategies can only be changed during freeze time');
+        return;
+      }
+      onStrategyChange(team, strategy);
+      toast.success(`Strategy updated: ${strategy}`);
+    } catch (error) {
+      setErrorState('Error updating strategy');
+      toast.error('Failed to update strategy');
+    }
+  };
+
+  const handleMidRoundCall = (team: 't' | 'ct', call: string) => {
+    try {
+      if (matchState.phase !== 'live') {
+        toast.error('Mid-round calls can only be made during live round');
+        return;
+      }
+      onMidRoundCall(team, call);
+      toast.success(`Mid-round call: ${call}`);
+    } catch (error) {
+      setErrorState('Error making mid-round call');
+      toast.error('Failed to make mid-round call');
+    }
+  };
+
+  const getTeamPerformanceStats = useMemo(() => (team: Team) => {
+    return {
+      averageUtilityUsage: team.agents.reduce((sum, agent) => 
+        sum + agent.strategyStats.utilityUsage, 0) / team.agents.length,
+      averagePositioning: team.agents.reduce((sum, agent) => 
+        sum + agent.strategyStats.positioningScore, 0) / team.agents.length,
+      averageAdherence: team.agents.reduce((sum, agent) => 
+        sum + agent.strategyStats.strategyAdherence, 0) / team.agents.length
+    };
+  }, []);
+
+  if (errorState) {
+    return (
+      <Card className="p-4 bg-red-900/50">
+        <div className="flex items-center gap-2 text-red-400">
+          <AlertCircle className="w-5 h-5" />
+          <span>Error: {errorState}</span>
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <PhaseIndicator 
+        phase={matchState.phase} 
+        timeLeft={matchState.timeLeft} 
+      />
+
+      <TeamScore 
+        score={matchState.score} 
+        round={matchState.round} 
+      />
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* T Side Strategy */}
+        <StrategyOverview
+          team={matchState.teams.t}
+          strategy={matchState.currentStrategy.t}
+          phase={matchState.phase}
+          onStrategyChange={
+            (strategy) => handleStrategySelect('t', strategy)
+          }
+          onMidRoundCall={
+            (call) => handleMidRoundCall('t', call)
+          }
+        />
+
+        {/* CT Side Strategy */}
+        <StrategyOverview
+          team={matchState.teams.ct}
+          strategy={matchState.currentStrategy.ct}
+          phase={matchState.phase}
+          onStrategyChange={
+            (strategy) => handleStrategySelect('ct', strategy)
+          }
+          onMidRoundCall={
+            (call) => handleMidRoundCall('ct', call)
+          }
+        />
+      </div>
+
+      {/* Round Status */}
+      <Card className="bg-gray-800/50 backdrop-blur-sm p-4">
+        <div className="flex justify-between items-center">
+          <div className="flex items-center gap-2">
+            {matchState.phase === 'planted' ? (
+              <Trophy className="w-5 h-5 text-red-400" />
+            ) : (
+              <Timer className="w-5 h-5" />
+            )}
+            <span className="font-bold">
+              {PHASE_MESSAGES[matchState.phase]}
+            </span>
+          </div>
+          {matchState.activeCall && (
+            <div className="flex items-center gap-2 text-yellow-400">
+              <AlertCircle className="w-4 h-4" />
+              <span>Active Call: {matchState.activeCall}</span>
+            </div>
+          )}
+        </div>
+      </Card>
+    </div>
+  );
+};
+
+export default MatchFlow;
+// Constants
 const PHASE_MESSAGES: Record<string, string> = {
   warmup: "Prepare for the round",
   freezetime: "Buy phase - Select your strategy",
@@ -74,45 +222,32 @@ const STRATEGY_DESCRIPTIONS: Record<string, string> = {
   split_a: "Split attack through Long and Short A",
   mid_control: "Secure mid control before site hit",
   fake_a_b: "Fake presence at A before B execute",
-  eco_rush: "Economic round with rushed strategy"
+  eco_rush: "Economic round with rushed strategy",
+  defensive_stack: "Stack multiple players on one site",
+  retake_setup: "Setup for retake scenarios"
 };
 
-const DEFAULT_MATCH_STATE: MatchState = {
-  phase: 'warmup',
-  round: 1,
-  score: { t: 0, ct: 0 },
-  timeLeft: 0,
-  teams: {
-    t: { 
-      agents: [], 
-      strategyStats: { 
-        roundsWonWithStrategy: {}, 
-        strategySuccessRate: 0, 
-        lastSuccessfulStrategy: '' 
-      }
-    },
-    ct: { 
-      agents: [], 
-      strategyStats: { 
-        roundsWonWithStrategy: {}, 
-        strategySuccessRate: 0, 
-        lastSuccessfulStrategy: '' 
-      }
-    }
-  },
-  currentStrategy: { t: 'default', ct: 'default' },
-  activeCall: null
+const AVAILABLE_STRATEGIES = {
+  t: ['default', 'rush_b', 'split_a', 'mid_control', 'fake_a_b', 'eco_rush'],
+  ct: ['default', 'defensive_stack', 'retake_setup', 'mid_control']
 };
 
-const PhaseIndicator: React.FC<{ phase: string; timeLeft: number }> = ({ 
-  phase, 
-  timeLeft 
-}) => (
-  <Card className={`
+const MID_ROUND_CALLS = {
+  t: ['rotate_a', 'rotate_b', 'execute', 'hold', 'split', 'fake'],
+  ct: ['rotate_a', 'rotate_b', 'retake', 'hold', 'stack', 'spread']
+};
+
+// Components
+const PhaseIndicator: React.FC<{ 
+  phase: string; 
+  timeLeft: number;
+  className?: string;
+}> = React.memo(({ phase, timeLeft, className }) => (
+  <Card className={cn(`
     p-4 mb-4 flex justify-between items-center
     ${phase === 'planted' ? 'bg-red-900/50' : 'bg-gray-800/50'}
     backdrop-blur-sm transition-colors duration-200
-  `}>
+  `, className)}>
     <div className="flex items-center gap-2">
       {phase === 'planted' ? (
         <AlertCircle className="w-5 h-5 text-red-400 animate-pulse" />
@@ -125,13 +260,14 @@ const PhaseIndicator: React.FC<{ phase: string; timeLeft: number }> = ({
       {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
     </span>
   </Card>
-);
+));
 
-const TeamScore: React.FC<{ score: { t: number; ct: number }; round: number }> = ({ 
-  score, 
-  round 
-}) => (
-  <Card className="bg-gray-800/50 backdrop-blur-sm p-4 mb-4">
+const TeamScore: React.FC<{ 
+  score: { t: number; ct: number }; 
+  round: number;
+  className?: string;
+}> = React.memo(({ score, round, className }) => (
+  <Card className={cn("bg-gray-800/50 backdrop-blur-sm p-4 mb-4", className)}>
     <div className="text-center">
       <div className="text-3xl font-bold mb-2">
         <span className="text-yellow-400">{score.t}</span>
@@ -141,7 +277,77 @@ const TeamScore: React.FC<{ score: { t: number; ct: number }; round: number }> =
       <div className="text-gray-400">Round {round}</div>
     </div>
   </Card>
-);
+));
+
+const StrategyButton: React.FC<{
+  strategy: string;
+  currentStrategy: string;
+  onClick: () => void;
+  className?: string;
+}> = React.memo(({ strategy, currentStrategy, onClick, className }) => (
+  <Button
+    size="sm"
+    onClick={onClick}
+    variant={strategy === currentStrategy ? 'default' : 'outline'}
+    className={cn('transition-all duration-200', className)}
+  >
+    {strategy.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
+  </Button>
+));
+
+const MidRoundCallButton: React.FC<{
+  call: string;
+  onClick: () => void;
+  className?: string;
+}> = React.memo(({ call, onClick, className }) => {
+  const getCallStyle = () => {
+    switch (call) {
+      case 'rotate_a':
+      case 'rotate_b':
+        return 'bg-blue-600 hover:bg-blue-700';
+      case 'execute':
+      case 'retake':
+        return 'bg-green-600 hover:bg-green-700';
+      case 'hold':
+      case 'stack':
+        return 'bg-yellow-600 hover:bg-yellow-700';
+      default:
+        return 'bg-gray-600 hover:bg-gray-700';
+    }
+  };
+
+  return (
+    <Button
+      size="sm"
+      onClick={onClick}
+      className={cn(
+        'transition-colors',
+        getCallStyle(),
+        className
+      )}
+    >
+      {call.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
+    </Button>
+  );
+}));
+const AgentStatus: React.FC<{
+  agent: Agent;
+  className?: string;
+}> = React.memo(({ agent, className }) => (
+  <div className={cn("flex justify-between items-center mb-2", className)}>
+    <div className="flex items-center gap-2">
+      <div className={`w-2 h-2 rounded-full ${
+        agent.isAlive ? 'bg-green-500' : 'bg-red-500'
+      }`} />
+      <span className={agent.isAlive ? 'text-white' : 'text-gray-500'}>
+        {agent.name}
+      </span>
+    </div>
+    <div className="text-sm text-gray-400">
+      {Math.round(agent.strategyStats.strategyAdherence * 100)}% adherence
+    </div>
+  </div>
+));
 
 const StrategyOverview: React.FC<{
   team: Team;
@@ -149,14 +355,9 @@ const StrategyOverview: React.FC<{
   phase: string;
   onStrategyChange?: (strategy: string) => void;
   onMidRoundCall?: (call: string) => void;
-}> = ({
-  team,
-  strategy,
-  phase,
-  onStrategyChange,
-  onMidRoundCall
-}) => (
-  <Card className="bg-gray-800/50 backdrop-blur-sm p-4 mb-4">
+  className?: string;
+}> = React.memo(({ team, strategy, phase, onStrategyChange, onMidRoundCall, className }) => (
+  <Card className={cn("bg-gray-800/50 backdrop-blur-sm p-4", className)}>
     <div className="flex justify-between items-center mb-4">
       <div className="flex items-center gap-2">
         <Swords className="w-5 h-5" />
@@ -178,92 +379,48 @@ const StrategyOverview: React.FC<{
 
       {phase === 'freezetime' && onStrategyChange && (
         <div className="grid grid-cols-2 gap-2">
-          <Button
-            size="sm"
-            onClick={() => onStrategyChange('default')}
-            variant={strategy === 'default' ? 'default' : 'outline'}
-          >
-            Default
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => onStrategyChange('rush_b')}
-            variant={strategy === 'rush_b' ? 'default' : 'outline'}
-          >
-            Rush B
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => onStrategyChange('split_a')}
-            variant={strategy === 'split_a' ? 'default' : 'outline'}
-          >
-            Split A
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => onStrategyChange('mid_control')}
-            variant={strategy === 'mid_control' ? 'default' : 'outline'}
-          >
-            Mid Control
-          </Button>
+          {AVAILABLE_STRATEGIES[team.agents[0]?.team || 't'].map((strat) => (
+            <StrategyButton
+              key={strat}
+              strategy={strat}
+              currentStrategy={strategy}
+              onClick={() => onStrategyChange(strat)}
+            />
+          ))}
         </div>
       )}
 
       {phase === 'live' && onMidRoundCall && (
         <div className="grid grid-cols-2 gap-2">
-          <Button
-            size="sm"
-            onClick={() => onMidRoundCall('rotate_a')}
-            className="bg-blue-600 hover:bg-blue-700 transition-colors"
-          >
-            Rotate A
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => onMidRoundCall('rotate_b')}
-            className="bg-blue-600 hover:bg-blue-700 transition-colors"
-          >
-            Rotate B
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => onMidRoundCall('execute')}
-            className="bg-green-600 hover:bg-green-700 transition-colors"
-          >
-            Execute
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => onMidRoundCall('hold')}
-            className="bg-yellow-600 hover:bg-yellow-700 transition-colors"
-          >
-            Hold Positions
-          </Button>
+          {MID_ROUND_CALLS[team.agents[0]?.team || 't'].map((call) => (
+            <MidRoundCallButton
+              key={call}
+              call={call}
+              onClick={() => onMidRoundCall(call)}
+            />
+          ))}
         </div>
       )}
 
       <div className="mt-4">
         <div className="text-sm text-gray-400 mb-2">Team Performance</div>
         {team.agents.map(agent => (
-          <div key={agent.id} className="flex justify-between items-center mb-2">
-            <div className="flex items-center gap-2">
-              <div className={`w-2 h-2 rounded-full ${
-                agent.isAlive ? 'bg-green-500' : 'bg-red-500'
-              }`} />
-              <span className={agent.isAlive ? 'text-white' : 'text-gray-500'}>
-                {agent.name}
-              </span>
-            </div>
-            <div className="text-sm text-gray-400">
-              {Math.round(agent.strategyStats.strategyAdherence * 100)}% adherence
-            </div>
-          </div>
+          <AgentStatus key={agent.id} agent={agent} />
         ))}
       </div>
     </div>
   </Card>
-);
+));
+// Utility function for calculating team performance
+const calculateTeamPerformance = (team: Team): number => {
+  if (!team.agents.length) return 0;
+  
+  return team.agents.reduce((sum, agent) => (
+    sum + (agent.strategyStats?.strategyAdherence || 0)
+  ), 0) / team.agents.length;
+};
 
+// Main MatchFlow component
 const MatchFlow: React.FC<MatchFlowProps> = ({
   matchState,
   onPhaseEnd,
@@ -271,99 +428,122 @@ const MatchFlow: React.FC<MatchFlowProps> = ({
   onStrategyChange,
   onMidRoundCall
 }) => {
-  const safeMatchState = useMemo(() => {
-    if (!matchState || !matchState.teams || !matchState.score) {
-      console.warn('Invalid match state detected, using default state');
-      return DEFAULT_MATCH_STATE;
-    }
+  const [lastPhase, setLastPhase] = useState(matchState.phase);
+  const [errorState, setErrorState] = useState<string | null>(null);
 
-    return {
-      ...DEFAULT_MATCH_STATE,
-      ...matchState,
-      score: {
-        t: matchState.score?.t ?? 0,
-        ct: matchState.score?.ct ?? 0
-      },
-      teams: {
-        t: {
-          ...DEFAULT_MATCH_STATE.teams.t,
-          ...matchState.teams.t,
-          strategyStats: {
-            ...DEFAULT_MATCH_STATE.teams.t.strategyStats,
-            ...matchState.teams.t?.strategyStats
-          }
-        },
-        ct: {
-          ...DEFAULT_MATCH_STATE.teams.ct,
-          ...matchState.teams.ct,
-          strategyStats: {
-            ...DEFAULT_MATCH_STATE.teams.ct.strategyStats,
-            ...matchState.teams.ct?.strategyStats
-          }
-        }
-      },
-      currentStrategy: {
-        t: matchState.currentStrategy?.t ?? 'default',
-        ct: matchState.currentStrategy?.ct ?? 'default'
-      }
-    };
-  }, [matchState]);
-
+  // Monitor phase changes
   useEffect(() => {
-    const timer = setInterval(() => {
-      if (typeof onTimeUpdate === 'function') {
-        onTimeUpdate();
+    if (matchState.phase !== lastPhase) {
+      setLastPhase(matchState.phase);
+      handlePhaseChange(matchState.phase);
+    }
+  }, [matchState.phase, lastPhase]);
+
+  const handlePhaseChange = (phase: string) => {
+    try {
+      onPhaseEnd();
+      if (phase === 'ended') {
+        toast.success('Round complete!');
       }
-    }, 1000); // Update every second
-  
-    return () => clearInterval(timer);
-  }, [onTimeUpdate]);
+    } catch (error) {
+      setErrorState('Error handling phase change');
+      toast.error('Failed to process phase change');
+    }
+  };
+
+  const handleStrategySelect = (team: 't' | 'ct', strategy: string) => {
+    try {
+      if (matchState.phase !== 'freezetime') {
+        toast.error('Strategies can only be changed during freeze time');
+        return;
+      }
+      onStrategyChange(team, strategy);
+      toast.success(`Strategy updated: ${strategy}`);
+    } catch (error) {
+      setErrorState('Error updating strategy');
+      toast.error('Failed to update strategy');
+    }
+  };
+
+  const handleMidRoundCall = (team: 't' | 'ct', call: string) => {
+    try {
+      if (matchState.phase !== 'live') {
+        toast.error('Mid-round calls can only be made during live round');
+        return;
+      }
+      onMidRoundCall(team, call);
+      toast.success(`Mid-round call: ${call}`);
+    } catch (error) {
+      setErrorState('Error making mid-round call');
+      toast.error('Failed to make mid-round call');
+    }
+  };
+
+  // Error state handling
+  if (errorState) {
+    return (
+      <Card className="p-4 bg-red-900/50">
+        <div className="flex items-center gap-2 text-red-400">
+          <AlertCircle className="w-5 h-5" />
+          <span>Error: {errorState}</span>
+        </div>
+      </Card>
+    );
+  }
 
   return (
-    <div className="max-w-4xl mx-auto p-4">
+    <div className="space-y-4">
       <PhaseIndicator 
-        phase={safeMatchState.phase} 
-        timeLeft={safeMatchState.timeLeft} 
+        phase={matchState.phase} 
+        timeLeft={matchState.timeLeft} 
       />
 
       <TeamScore 
-        score={safeMatchState.score} 
-        round={safeMatchState.round} 
+        score={matchState.score} 
+        round={matchState.round} 
       />
 
-      <div className="grid md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* T Side Strategy */}
         <StrategyOverview
-          team={safeMatchState.teams.t}
-          strategy={safeMatchState.currentStrategy.t}
-          phase={safeMatchState.phase}
-          onStrategyChange={
-            safeMatchState.phase === 'freezetime' 
-              ? (strategy) => onStrategyChange('t', strategy)
-              : undefined
-          }
-          onMidRoundCall={
-            safeMatchState.phase === 'live'
-              ? (call) => onMidRoundCall('t', call)
-              : undefined
-          }
+          team={matchState.teams.t}
+          strategy={matchState.currentStrategy.t}
+          phase={matchState.phase}
+          onStrategyChange={(strategy) => handleStrategySelect('t', strategy)}
+          onMidRoundCall={(call) => handleMidRoundCall('t', call)}
         />
 
+        {/* CT Side Strategy */}
         <StrategyOverview
-          team={safeMatchState.teams.ct}
-          strategy={safeMatchState.currentStrategy.ct}
-          phase={safeMatchState.phase}
-          onStrategyChange={
-            safeMatchState.phase === 'freezetime' 
-              ? (strategy) => onStrategyChange('ct', strategy)
-              : undefined
-          }
-          onMidRoundCall={
-            safeMatchState.phase === 'live'
-              ? (call) => onMidRoundCall('ct', call)
-              : undefined
-          }
+          team={matchState.teams.ct}
+          strategy={matchState.currentStrategy.ct}
+          phase={matchState.phase}
+          onStrategyChange={(strategy) => handleStrategySelect('ct', strategy)}
+          onMidRoundCall={(call) => handleMidRoundCall('ct', call)}
         />
       </div>
+
+      {/* Round Status */}
+      <Card className="bg-gray-800/50 backdrop-blur-sm p-4">
+        <div className="flex justify-between items-center">
+          <div className="flex items-center gap-2">
+            {matchState.phase === 'planted' ? (
+              <Trophy className="w-5 h-5 text-red-400" />
+            ) : (
+              <Timer className="w-5 h-5" />
+            )}
+            <span className="font-bold">
+              {PHASE_MESSAGES[matchState.phase]}
+            </span>
+          </div>
+          {matchState.activeCall && (
+            <div className="flex items-center gap-2 text-yellow-400">
+              <AlertCircle className="w-4 h-4" />
+              <span>Active Call: {matchState.activeCall}</span>
+            </div>
+          )}
+        </div>
+      </Card>
     </div>
   );
 };

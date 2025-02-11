@@ -127,10 +127,16 @@ interface GameState {
 }
 
 export default class GameController {
+  private static instance: GameController | null = null;
   private state: GameState;
-  private listeners: ((state: GameState) => void)[] = [];
+  private listeners: Set<(state: GameState) => void> = new Set();
   private gameLoopInterval: NodeJS.Timer | null = null;
   private lastCombatProcess: number = 0;
+  private lastStateUpdate: number = 0;
+  private readonly updateThrottle: number = 16;
+  private isProcessingUpdate: boolean = false;
+  private debugMode: boolean = process.env.NODE_ENV === 'development';
+
   private systems: {
     combat: CombatSystem;
     movement: MovementSystem;
@@ -141,28 +147,35 @@ export default class GameController {
   };
 
   private readonly ROUND_TIMES = {
+    warmup: 15,
     freezetime: 15,
     live: 115,
     planted: 40
   };
 
-  constructor() {
-    try {
-      this.systems = {
-        combat: new CombatSystem(),
-        movement: new MovementSystem(),
-        round: new RoundSystem(),
-        buy: new BuySystem(),
-        agent: new AgentSystem(),
-        tactics: new Dust2TacticsSystem()
-      };
-
-      this.state = this.createInitialState();
-    } catch (error) {
-      console.error('Error initializing GameController:', error);
-      toast.error('Failed to initialize game systems');
-      throw error;
+  private constructor() {
+    if (GameController.instance) {
+      throw new Error('Use GameController.getInstance() instead');
     }
+
+    this.systems = {
+      combat: new CombatSystem(),
+      movement: new MovementSystem(),
+      round: new RoundSystem(),
+      buy: new BuySystem(),
+      agent: new AgentSystem(),
+      tactics: new Dust2TacticsSystem()
+    };
+
+    this.state = this.createInitialState();
+    this.setupErrorHandlers();
+  }
+
+  public static getInstance(): GameController {
+    if (!GameController.instance) {
+      GameController.instance = new GameController();
+    }
+    return GameController.instance;
   }
 
   private createInitialState(): GameState {
@@ -216,9 +229,21 @@ export default class GameController {
     };
   }
 
+  private setupErrorHandlers(): void {
+    window.addEventListener('error', (event) => {
+      console.error('Game controller error:', event.error);
+      this.pauseMatch();
+      toast.error('Game error detected');
+    });
+  }
+
   public setState(newState: Partial<GameState>): void {
     try {
+      const timestamp = Date.now();
+      if (timestamp - this.lastStateUpdate < this.updateThrottle) return;
+
       this.state = { ...this.state, ...newState };
+      this.lastStateUpdate = timestamp;
       this.notifyListeners();
     } catch (error) {
       console.error('Error setting game state:', error);
@@ -227,17 +252,27 @@ export default class GameController {
   }
 
   public subscribe(listener: (state: GameState) => void): () => void {
-    this.listeners.push(listener);
+    this.listeners.add(listener);
     return () => {
-      this.listeners = this.listeners.filter(l => l !== listener);
+      this.listeners.delete(listener);
     };
   }
 
   private notifyListeners(): void {
+    if (this.isProcessingUpdate) return;
+    
     try {
-      this.listeners.forEach(listener => listener({ ...this.state }));
-    } catch (error) {
-      console.error('Error notifying listeners:', error);
+      this.isProcessingUpdate = true;
+      const stateSnapshot = { ...this.state };
+      this.listeners.forEach(listener => {
+        try {
+          listener(stateSnapshot);
+        } catch (error) {
+          console.error('Listener error:', error);
+        }
+      });
+    } finally {
+      this.isProcessingUpdate = false;
     }
   }
 
@@ -292,48 +327,58 @@ export default class GameController {
     try {
       if (this.state.match.status !== 'active') return;
 
-      if (this.state.round.timeLeft > 0) {
-        this.state.round.timeLeft -= deltaTime / 1000;
-        if (this.state.round.timeLeft <= 0) {
-          this.handlePhaseEnd();
-        }
-      }
-
-      ['t', 'ct'].forEach(side => {
-        const team = this.state.teams[side as 't' | 'ct'];
-        this.systems.movement.updatePositions(
-          team.agents,
-          this.state.round.phase,
-          deltaTime,
-          team.strategy,
-          this.state.round.activeCall
-        );
-      });
-
-      const now = Date.now();
-      if (now - this.lastCombatProcess >= 500) {
-        const combatResults = this.systems.combat.processCombatRound(
-          [...this.state.teams.t.agents, ...this.state.teams.ct.agents],
-          this.state,
-          { 
-            t: this.state.teams.t.strategy, 
-            ct: this.state.teams.ct.strategy 
-          }
-        );
-
-        if (combatResults.length > 0) {
-          this.state.combatResult = combatResults[combatResults.length - 1];
-          this.handleCombatResult(this.state.combatResult);
-        }
-
-        this.lastCombatProcess = now;
-      }
+      this.updateTimer(deltaTime);
+      this.updateMovement(deltaTime);
+      this.processCombat();
 
       this.notifyListeners();
     } catch (error) {
       console.error('Error in game update loop:', error);
       this.pauseMatch();
       toast.error('Game loop error detected');
+    }
+  }
+
+  private updateTimer(deltaTime: number): void {
+    if (this.state.round.timeLeft > 0) {
+      this.state.round.timeLeft -= deltaTime / 1000;
+      if (this.state.round.timeLeft <= 0) {
+        this.handlePhaseEnd();
+      }
+    }
+  }
+
+  private updateMovement(deltaTime: number): void {
+    ['t', 'ct'].forEach(side => {
+      const team = this.state.teams[side as 't' | 'ct'];
+      this.systems.movement.updatePositions(
+        team.agents,
+        this.state.round.phase,
+        deltaTime,
+        team.strategy,
+        this.state.round.activeCall
+      );
+    });
+  }
+
+  private processCombat(): void {
+    const now = Date.now();
+    if (now - this.lastCombatProcess >= 500) {
+      const combatResults = this.systems.combat.processCombatRound(
+        [...this.state.teams.t.agents, ...this.state.teams.ct.agents],
+        this.state,
+        { 
+          t: this.state.teams.t.strategy, 
+          ct: this.state.teams.ct.strategy 
+        }
+      );
+
+      if (combatResults.length > 0) {
+        this.state.combatResult = combatResults[combatResults.length - 1];
+        this.handleCombatResult(this.state.combatResult);
+      }
+
+      this.lastCombatProcess = now;
     }
   }
 
@@ -365,58 +410,6 @@ export default class GameController {
     } else if (tAlive && !ctAlive) {
       this.endRound('t', 'All counter-terrorists eliminated');
     }
-  }
-
-  public updateStrategy(side: 't' | 'ct', strategy: string): void {
-    try {
-      this.state.teams[side].strategy = strategy;
-      this.state.round.currentStrategy[side] = strategy;
-      this.notifyListeners();
-      toast.success(`Strategy updated for ${side.toUpperCase()} team`);
-    } catch (error) {
-      console.error('Error updating strategy:', error);
-      toast.error('Failed to update strategy');
-    }
-  }
-
-  public processBuy(side: 't' | 'ct', agentId: string, loadout: {
-    weapons: string[];
-    equipment: string[];
-    total: number;
-  }): void {
-    try {
-      const agent = this.findAgent(agentId);
-      if (!agent || this.state.teams[side].money < loadout.total) {
-        toast.error('Invalid buy request');
-        return;
-      }
-
-      agent.weapons = loadout.weapons;
-      agent.equipment = loadout.equipment;
-      this.state.teams[side].money -= loadout.total;
-      
-      this.notifyListeners();
-      toast.success('Purchase successful');
-    } catch (error) {
-      console.error('Error processing buy:', error);
-      toast.error('Failed to process purchase');
-    }
-  }
-
-  public makeMidRoundCall(side: 't' | 'ct', call: string): void {
-    try {
-      this.state.round.activeCall = call;
-      this.notifyListeners();
-      toast.success(`Mid-round call: ${call}`);
-    } catch (error) {
-      console.error('Error making mid-round call:', error);
-      toast.error('Failed to make mid-round call');
-    }
-  }
-
-  private findAgent(id: string): Agent | undefined {
-    return [...this.state.teams.t.agents, ...this.state.teams.ct.agents]
-      .find(agent => agent.id === id);
   }
 
   private handlePhaseEnd(): void {
@@ -456,10 +449,9 @@ export default class GameController {
       this.state.round.endReason = reason;
       this.state.match.score[winner]++;
 
-      // Update team statistics
       const winningTeam = this.state.teams[winner];
       winningTeam.roundWins++;
-      winningTeam.money += 3250; // Win bonus
+      winningTeam.money += 3250;
       
       const losingTeam = this.state.teams[winner === 't' ? 'ct' : 't'];
       losingTeam.money += losingTeam.lossBonus;
@@ -517,7 +509,6 @@ export default class GameController {
         activeCall: null
       };
 
-      // Reset agents for next round
       ['t', 'ct'].forEach(side => {
         this.state.teams[side as 't' | 'ct'].agents.forEach(agent => {
           agent.isAlive = true;
@@ -568,32 +559,18 @@ export default class GameController {
     }
   }
 
-  public clearCombatResult(): void {
-    this.state.combatResult = null;
-    this.notifyListeners();
+  private findAgent(id: string): Agent | undefined {
+    return [...this.state.teams.t.agents, ...this.state.teams.ct.agents]
+      .find(agent => agent.id === id);
   }
 
   public getState(): GameState {
     return { ...this.state };
   }
 
-  public updateTimer(): void {
-    try {
-      if (this.state.match.status !== 'active') return;
-
-      if (this.state.round.timeLeft > 0) {
-        this.state.round.timeLeft -= 1; // Decrease by 1 second
-        
-        // Check if time has run out
-        if (this.state.round.timeLeft <= 0) {
-          this.handlePhaseEnd();
-        }
-        
-        this.notifyListeners();
-      }
-    } catch (error) {
-      console.error('Error updating timer:', error);
-      toast.error('Failed to update timer');
-    }
+  public cleanup(): void {
+    this.stopGameLoop();
+    this.listeners.clear();
+    GameController.instance = null;
   }
 }
