@@ -205,7 +205,7 @@ export const GameProvider: React.FC<GameProviderProps> = ({
     ...initialState
   }));
 
-  export function GameProvider({ children }: { children: React.ReactNode }) {
+
     const [matchState, setMatchState] = useState<MatchState>({
       round: 1,
       phase: 'freezetime',

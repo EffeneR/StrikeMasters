@@ -179,11 +179,19 @@ export interface MatchState {
   };
   isMatchStarted: boolean;
 
-export interface Team {
-  score: number;
-  money: number;
-  players: Player[];
-}
+  export interface Team {
+    money: number;
+    roundWins: number;
+    lossBonus: number;
+    timeoutAvailable: boolean;
+    strategy: string;
+    agents: Agent[];
+    strategyStats: {
+      roundsWonWithStrategy: { [key: string]: number };
+      strategySuccessRate: number;
+      lastSuccessfulStrategy: string;
+    };
+  }
 
 export interface MatchState {
   id: string;
@@ -223,19 +231,36 @@ export interface RoundState {
 
 // Enhanced Game State
 export interface GameState {
-  match: MatchState;
-  round: RoundState;
+  match: {
+    id: string;
+    status: 'pending' | 'active' | 'paused' | 'ended';
+    currentRound: number;
+    maxRounds: number;
+    score: { t: number; ct: number };
+    winner: 't' | 'ct' | null;
+    startTime: number | null;
+    endTime: number | null;
+  };
+  round: {
+    phase: 'warmup' | 'freezetime' | 'live' | 'planted' | 'ended';
+    timeLeft: number;
+    bombPlanted: boolean;
+    bombSite: 'A' | 'B' | null;
+    plantTime: number | null;
+    winner: 't' | 'ct' | null;
+    endReason: string | null;
+    currentStrategy: {
+      t: string;
+      ct: string;
+    };
+    activeCall: string | null;
+  };
   teams: {
     t: Team;
     ct: Team;
   };
   events: GameEvent[];
-  combatResult: CombatResult | null;
-  meta: {
-    version: string;
-    timestamp: number;
-    tickRate: number;
-  };
+  combatResult: any | null;
 }
 
 // Enhanced Game Event

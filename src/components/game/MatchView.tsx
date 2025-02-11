@@ -34,7 +34,21 @@ import { toast } from 'sonner';
 import BuyMenu from './BuyMenu';
 import GameRenderer from './GameRenderer';
 import CombatVisualizer from './CombatVisualizer';
+import React from 'react';
 import { useGame } from '@/components/game-provider';
+import GameRenderer from './GameRenderer';
+
+const MatchView: React.FC = () => {
+  const { state } = useGame();
+  
+  return (
+    <div className="w-full h-full">
+      <GameRenderer 
+        className="w-full h-full"
+      />
+    </div>
+  );
+};
 import type { GameState, Agent, Team, MatchPhase, RoundPhase } from '@/types/game';
 
 // Constants
