@@ -194,6 +194,26 @@ export default class GameController {
     return GameController.instance;
   }
 
+  public plantBomb(site: 'A' | 'B'): void {
+    if (this.state.round.phase !== 'live') return;
+    
+    this.state.round.bombPlanted = true;
+    this.state.round.bombSite = site;
+    this.state.round.plantTime = Date.now();
+    this.state.round.phase = 'planted';
+    this.state.round.timeLeft = this.ROUND_TIMES.planted;
+    
+    this.notifyListeners();
+    toast.info(`Bomb planted at ${site} site`);
+  }
+  
+  public defuseBomb(): void {
+    if (!this.state.round.bombPlanted) return;
+    
+    this.state.round.bombPlanted = false;
+    this.endRound('ct', 'Bomb defused');
+  }
+
   private createInitialState(): GameState {
     const defaultState: GameState = {
       match: {
@@ -350,12 +370,34 @@ export default class GameController {
     }
   }
 
+  private updateMomentum(winner: 't' | 'ct'): void {
+    const currentMomentum = this.state.round.momentum;
+    
+    if (currentMomentum.team === winner) {
+      currentMomentum.factor = Math.min(currentMomentum.factor + 0.2, 1);
+    } else {
+      currentMomentum.team = winner;
+      currentMomentum.factor = 0.2;
+    }
+  }
+
   private updateTimer(deltaTime: number): void {
     if (this.state.round.timeLeft > 0) {
       this.state.round.timeLeft -= deltaTime / 1000;
       if (this.state.round.timeLeft <= 0) {
         this.handlePhaseEnd();
       }
+    }
+  }
+
+  private setupErrorHandlers(): void {
+    if (this.isBrowser) {
+      window.onerror = (msg, url, lineNo, columnNo, error) => {
+        console.error('Game Error:', { msg, url, lineNo, columnNo, error });
+        toast.error('Game error detected');
+        this.pauseMatch();
+        return false;
+      };
     }
   }
 
@@ -459,7 +501,7 @@ export default class GameController {
       this.state.round.winner = winner;
       this.state.round.endReason = reason;
       this.state.match.score[winner]++;
-
+  
       const winningTeam = this.state.teams[winner];
       winningTeam.roundWins++;
       winningTeam.money += 3250;
@@ -467,12 +509,15 @@ export default class GameController {
       const losingTeam = this.state.teams[winner === 't' ? 'ct' : 't'];
       losingTeam.money += losingTeam.lossBonus;
       losingTeam.lossBonus = Math.min(losingTeam.lossBonus + 500, 3400);
-
+  
+      this.updateMomentum(winner);
       this.notifyListeners();
       toast.success(`Round ended: ${reason}`);
-
+  
       if (this.checkMatchEnd()) {
         this.endMatch();
+      } else {
+        setTimeout(() => this.startNextRound(), 5000);
       }
     } catch (error) {
       console.error('Error ending round:', error);
@@ -579,6 +624,54 @@ export default class GameController {
     return { ...this.state };
   }
 
+  private createDefaultTeam(side: 't' | 'ct'): Team {
+    return {
+      money: 800,
+      roundWins: 0,
+      lossBonus: 1400,
+      timeoutAvailable: true,
+      strategy: 'default',
+      agents: Array(5).fill(null).map((_, index) => ({
+        id: `${side}-agent-${index}`,
+        name: `${side} Agent ${index + 1}`,
+        team: side,
+        role: 'rifler',
+        position: { x: 0, y: 0 },
+        isAlive: true,
+        health: 100,
+        armor: 0,
+        weapons: [],
+        equipment: [],
+        stats: {
+          aim: 50 + Math.floor(Math.random() * 50),
+          reaction: 50 + Math.floor(Math.random() * 50),
+          positioning: 50 + Math.floor(Math.random() * 50),
+          utility: 50 + Math.floor(Math.random() * 50),
+          leadership: 50 + Math.floor(Math.random() * 50),
+          clutch: 50 + Math.floor(Math.random() * 50)
+        },
+        matchStats: {
+          kills: 0,
+          deaths: 0,
+          assists: 0,
+          utilityDamage: 0,
+          flashAssists: 0
+        },
+        strategyStats: {
+          utilityUsage: 0,
+          positioningScore: 0,
+          strategyAdherence: 0,
+          impactRating: 0
+        }
+      })),
+      strategyStats: {
+        roundsWonWithStrategy: {},
+        strategySuccessRate: 0,
+        lastSuccessfulStrategy: ''
+      }
+    };
+  }
+
   public cleanup(): void {
     if (!this.isBrowser) return;
     
@@ -591,6 +684,12 @@ export default class GameController {
   private getTeam(side: 't' | 'ct'): Team {
     return this.state.teams[side];
   }
+
+  public subscribe(listener: (state: GameState) => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
 
   // Helper method to safely update team state
   private updateTeam(side: 't' | 'ct', updates: Partial<Team>): void {
