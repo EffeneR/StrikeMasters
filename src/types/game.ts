@@ -161,38 +161,6 @@ export interface Strategy {
 }
 
 // Enhanced Match State
-
-export interface MatchState {
-  round: number;
-  phase: 'freezetime' | 'live' | 'over';
-  teams: {
-    t: {
-      score: number;
-      money: number;
-      players: Agent[];
-    };
-    ct: {
-      score: number;
-      money: number;
-      players: Agent[];
-    };
-  };
-  isMatchStarted: boolean;
-
-  export interface Team {
-    money: number;
-    roundWins: number;
-    lossBonus: number;
-    timeoutAvailable: boolean;
-    strategy: string;
-    agents: Agent[];
-    strategyStats: {
-      roundsWonWithStrategy: { [key: string]: number };
-      strategySuccessRate: number;
-      lastSuccessfulStrategy: string;
-    };
-  }
-
 export interface MatchState {
   id: string;
   status: MatchStatus;
@@ -207,6 +175,19 @@ export interface MatchState {
     areas: MapArea[];
     callouts: { [key: string]: Position };
   };
+  teams: {
+    t: {
+      score: number;
+      money: number;
+      players: Agent[];
+    };
+    ct: {
+      score: number;
+      money: number;
+      players: Agent[];
+    };
+  };
+  isMatchStarted: boolean;
 }
 
 // Enhanced Round State
@@ -233,21 +214,21 @@ export interface RoundState {
 export interface GameState {
   match: {
     id: string;
-    status: 'pending' | 'active' | 'paused' | 'ended';
+    status: MatchStatus;
     currentRound: number;
     maxRounds: number;
     score: { t: number; ct: number };
-    winner: 't' | 'ct' | null;
+    winner: Team | null;
     startTime: number | null;
     endTime: number | null;
   };
   round: {
-    phase: 'warmup' | 'freezetime' | 'live' | 'planted' | 'ended';
+    phase: RoundPhase;
     timeLeft: number;
     bombPlanted: boolean;
     bombSite: 'A' | 'B' | null;
     plantTime: number | null;
-    winner: 't' | 'ct' | null;
+    winner: Team | null;
     endReason: string | null;
     currentStrategy: {
       t: string;
@@ -260,7 +241,7 @@ export interface GameState {
     ct: Team;
   };
   events: GameEvent[];
-  combatResult: any | null;
+  combatResult: CombatResult | null;
 }
 
 // Enhanced Game Event

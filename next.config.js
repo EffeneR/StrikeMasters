@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  swcMinify: true,
+  transpilePackages: ['tailwind-merge']
 }
 
 module.exports = nextConfig

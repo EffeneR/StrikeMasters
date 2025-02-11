@@ -205,67 +205,35 @@ export const GameProvider: React.FC<GameProviderProps> = ({
     ...initialState
   }));
 
-
-    const [matchState, setMatchState] = useState<MatchState>({
-      round: 1,
-      phase: 'freezetime',
-      teams: {
-        t: {
-          score: 0,
-          money: 800,
-          players: defaultTPlayers
-        },
-        ct: {
-          score: 0,
-          money: 800,
-          players: defaultCTPlayers
-        }
-      },
-      isMatchStarted: false
-    });
-  
-    const startMatch = useCallback(() => {
-      setMatchState(prev => ({
-        ...prev,
-        isMatchStarted: true
-      }));
-    }, []);
-  
-    const value = {
-      matchState,
-      setMatchState,
-      startMatch
-    };
-  
-    return (
-      <GameContext.Provider value={value}>
-        {children}
-      </GameContext.Provider>
-    );
-  }
-
-  // Handle mounting
+  // Initialize controller and handle mounting
   useEffect(() => {
-    setMounted(true);
-    const newController = GameController.getInstance(); // Use getInstance instead of new
-    setController(newController);
-  
-    return () => {
-      if (newController) {
-        newController.cleanup();
-      }
-    };
+    try {
+      setMounted(true);
+      const newController = new GameController();
+      
+      // Initialize controller with default state
+      newController.setState(gameState);
+      setController(newController);
+
+      return () => {
+        if (newController) {
+          newController.cleanup();
+        }
+      };
+    } catch (error) {
+      console.error('Failed to initialize game controller:', error);
+      toast.error('Game initialization failed');
+    }
   }, []);
 
-  // Handle game state
+  // Subscribe to state changes
   useEffect(() => {
     if (!controller || !mounted) return;
 
     try {
-      controller.setState(gameState);
-
       const unsubscribe = controller.subscribe((newState: GameState) => {
         setGameState((prevState) => {
+          // Only update if state has actually changed
           if (JSON.stringify(prevState) === JSON.stringify(newState)) {
             return prevState;
           }
@@ -273,6 +241,7 @@ export const GameProvider: React.FC<GameProviderProps> = ({
         });
       });
 
+      // Start game loop if initial state is provided
       if (initialState) {
         controller.startGameLoop();
       }
@@ -282,21 +251,33 @@ export const GameProvider: React.FC<GameProviderProps> = ({
         unsubscribe();
       };
     } catch (error) {
-      console.error('Game controller initialization error:', error);
-      toast.error('Failed to initialize game controller');
+      console.error('Game state subscription error:', error);
+      toast.error('Failed to sync game state');
     }
-  }, [controller, initialState, mounted]);
+  }, [controller, mounted, initialState]);
 
+  // Game actions
   const startMatch = useCallback(async (config: {
     playerTeam: Agent[],
     botTeam: Agent[],
     config: GameConfig
   }) => {
-    if (!controller) return;
+    if (!controller) {
+      toast.error('Game controller not initialized');
+      return;
+    }
     
     try {
       await controller.initializeMatch(config);
       controller.startGameLoop();
+      setGameState(prevState => ({
+        ...prevState,
+        match: {
+          ...prevState.match,
+          status: 'active',
+          startTime: Date.now()
+        }
+      }));
       toast.success('Match started successfully');
     } catch (error) {
       console.error('Failed to start match:', error);
@@ -306,10 +287,22 @@ export const GameProvider: React.FC<GameProviderProps> = ({
   }, [controller]);
 
   const updateStrategy = useCallback((side: 't' | 'ct', strategy: string) => {
-    if (!controller) return;
-
+    if (!controller) {
+      toast.error('Game controller not initialized');
+      return;
+    }
     try {
       controller.updateStrategy(side, strategy);
+      setGameState(prevState => ({
+        ...prevState,
+        teams: {
+          ...prevState.teams,
+          [side]: {
+            ...prevState.teams[side],
+            strategy
+          }
+        }
+      }));
     } catch (error) {
       console.error('Failed to update strategy:', error);
       toast.error('Failed to update strategy');
@@ -321,10 +314,13 @@ export const GameProvider: React.FC<GameProviderProps> = ({
     equipment: string[];
     total: number;
   }) => {
-    if (!controller) return;
-
+    if (!controller) {
+      toast.error('Game controller not initialized');
+      return;
+    }
     try {
       controller.processBuy(side, agentId, loadout);
+      // State update handled by controller subscription
     } catch (error) {
       console.error('Failed to process buy:', error);
       toast.error('Failed to process buy');
@@ -332,10 +328,19 @@ export const GameProvider: React.FC<GameProviderProps> = ({
   }, [controller]);
 
   const makeMidRoundCall = useCallback((side: 't' | 'ct', call: string) => {
-    if (!controller) return;
-
+    if (!controller) {
+      toast.error('Game controller not initialized');
+      return;
+    }
     try {
       controller.makeMidRoundCall(side, call);
+      setGameState(prevState => ({
+        ...prevState,
+        round: {
+          ...prevState.round,
+          activeCall: call
+        }
+      }));
     } catch (error) {
       console.error('Failed to make mid-round call:', error);
       toast.error('Failed to make mid-round call');
@@ -343,10 +348,19 @@ export const GameProvider: React.FC<GameProviderProps> = ({
   }, [controller]);
 
   const pauseMatch = useCallback(() => {
-    if (!controller) return;
-
+    if (!controller) {
+      toast.error('Game controller not initialized');
+      return;
+    }
     try {
       controller.pauseMatch();
+      setGameState(prevState => ({
+        ...prevState,
+        match: {
+          ...prevState.match,
+          status: 'paused'
+        }
+      }));
       toast.info('Match paused');
     } catch (error) {
       console.error('Failed to pause match:', error);
@@ -355,10 +369,19 @@ export const GameProvider: React.FC<GameProviderProps> = ({
   }, [controller]);
 
   const resumeMatch = useCallback(() => {
-    if (!controller) return;
-
+    if (!controller) {
+      toast.error('Game controller not initialized');
+      return;
+    }
     try {
       controller.resumeMatch();
+      setGameState(prevState => ({
+        ...prevState,
+        match: {
+          ...prevState.match,
+          status: 'active'
+        }
+      }));
       toast.success('Match resumed');
     } catch (error) {
       console.error('Failed to resume match:', error);
@@ -367,10 +390,20 @@ export const GameProvider: React.FC<GameProviderProps> = ({
   }, [controller]);
 
   const endMatch = useCallback(() => {
-    if (!controller) return;
-
+    if (!controller) {
+      toast.error('Game controller not initialized');
+      return;
+    }
     try {
       controller.endMatch();
+      setGameState(prevState => ({
+        ...prevState,
+        match: {
+          ...prevState.match,
+          status: 'ended',
+          endTime: Date.now()
+        }
+      }));
     } catch (error) {
       console.error('Failed to end match:', error);
       toast.error('Failed to end match');
@@ -378,10 +411,16 @@ export const GameProvider: React.FC<GameProviderProps> = ({
   }, [controller]);
 
   const clearCombatResult = useCallback(() => {
-    if (!controller) return;
-
+    if (!controller) {
+      toast.error('Game controller not initialized');
+      return;
+    }
     try {
       controller.clearCombatResult();
+      setGameState(prevState => ({
+        ...prevState,
+        combatResult: null
+      }));
     } catch (error) {
       console.error('Failed to clear combat result:', error);
       toast.error('Failed to clear combat result');
@@ -414,6 +453,7 @@ export const GameProvider: React.FC<GameProviderProps> = ({
     clearCombatResult
   ]);
 
+  // Don't render until mounted and controller is initialized
   if (!mounted || !controller) {
     return null;
   }
@@ -425,6 +465,7 @@ export const GameProvider: React.FC<GameProviderProps> = ({
   );
 };
 
+// Hooks remain the same
 export function useGame() {
   const context = useContext(GameContext);
   if (!context) {
@@ -441,9 +482,7 @@ export function useGameState<T>(selector: (state: GameState) => T): T {
 
 export function isValidGameState(state: any): state is GameState {
   if (!state || typeof state !== 'object') return false;
-  
-  const requiredKeys = ['match', 'round', 'teams', 'events'];
-  return requiredKeys.every(key => key in state);
+  return ['match', 'round', 'teams', 'events'].every(key => key in state);
 }
 
 export default GameProvider;

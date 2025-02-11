@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { cn } from "@/lib/utils";
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -13,43 +13,50 @@ import {
 } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import {
-  Target,
-  Shield,
-  Zap,
-  BrainCircuit,
-  Move,
-  TrendingUp,
   AlertCircle,
-  CheckCircle2,
-  XCircle,
-  Swords,
-  Timer,
-  Users,
   Brain,
-  ArrowRight,
   RefreshCcw,
+  Shield,
+  Swords,
+  Clock,
+  DollarSign,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import BuyMenu from './BuyMenu';
 import GameRenderer from './GameRenderer';
 import CombatVisualizer from './CombatVisualizer';
-import React from 'react';
 import { useGame } from '@/components/game-provider';
-import GameRenderer from './GameRenderer';
 
-const MatchView: React.FC = () => {
-  const { state } = useGame();
-  
-  return (
-    <div className="w-full h-full">
-      <GameRenderer 
-        className="w-full h-full"
-      />
-    </div>
-  );
-};
-import type { GameState, Agent, Team, MatchPhase, RoundPhase } from '@/types/game';
+// Types
+type TeamSide = 't' | 'ct';
+type GamePhase = 'freezetime' | 'live' | 'over';
+type GameStatus = 'active' | 'paused' | 'finished';
+
+// Interfaces
+interface Agent {
+  id: string;
+  name: string;
+  health: number;
+  money: number;
+  isAlive: boolean;
+  matchStats: {
+    kills: number;
+    deaths: number;
+    assists: number;
+  };
+}
+
+interface Team {
+  money: number;
+  agents: Agent[];
+  strategyStats: TeamStrategyStats;
+}
+
+interface TeamStrategyStats {
+  roundsWonWithStrategy: Record<string, number>;
+  averageExecutionTime?: number;
+}
 
 // Constants
 const T_STRATEGIES = {
@@ -78,6 +85,28 @@ const CT_STRATEGIES = {
   aggressive_info: "Aggressive Info"
 } as const;
 
+const STRATEGY_DESCRIPTIONS = {
+  default: "Balanced setup with standard positions",
+  rush_b: "Fast B execute with full team commitment",
+  split_a: "Split attack through multiple entry points",
+  mid_control: "Secure mid control before site hit",
+  fake_a_b: "Fake pressure A then hit B",
+  eco_rush: "Economic rush strategy",
+  double_fake: "Multiple fake executes before real hit",
+  slow_default: "Slow methodical default setup",
+  contact_play: "Contact-based execute",
+  fast_cat: "Quick catwalk control",
+  aggressive_mid: "Aggressive mid control setup",
+  stack_a: "Heavy A site stack",
+  stack_b: "Heavy B site stack",
+  retake_setup: "Setup for retake scenarios",
+  full_save: "Full economic save round",
+  double_mid: "Double mid control setup",
+  heavy_a: "Strong A site defense",
+  spread_setup: "Spread out defensive setup",
+  aggressive_info: "Early aggressive info gathering"
+} as const;
+
 const MID_ROUND_CALLS = {
   rotate_a: "Rotate to A",
   rotate_b: "Rotate to B",
@@ -95,28 +124,6 @@ const MID_ROUND_CALLS = {
   save: "Save Round"
 } as const;
 
-const STRATEGY_DESCRIPTIONS = {
-  default: "Balanced setup with standard positions",
-  rush_b: "Fast B execute with full team commitment",
-  split_a: "Split attack through multiple entry points",
-  mid_control: "Secure mid control before site hit",
-  fake_a_b: "Fake presence at A before B execute",
-  eco_rush: "Economic round with rushed strategy",
-  aggressive_mid: "Control mid with aggressive positioning",
-  stack_a: "Heavy A site defense",
-  stack_b: "Heavy B site defense",
-  retake_setup: "Setup for retake scenarios",
-  full_save: "Full economic save round",
-  double_fake: "Multiple fake executes before real hit",
-  slow_default: "Slow methodical default setup",
-  contact_play: "Contact-based execute without utility",
-  fast_cat: "Quick catwalk control",
-  double_mid: "Double mid control setup",
-  heavy_a: "Strong A site defense",
-  spread_setup: "Spread out defensive setup",
-  aggressive_info: "Play for early information"
-} as const;
-
 // Error Boundary Component
 const ErrorBoundary: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [hasError, setHasError] = useState(false);
@@ -124,10 +131,9 @@ const ErrorBoundary: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
   useEffect(() => {
     const handleError = (error: ErrorEvent) => {
-      console.error('Game Error:', error);
       setHasError(true);
       setErrorDetails(error.message);
-      toast.error('An error occurred in the game');
+      console.error('Error caught by boundary:', error);
     };
 
     window.addEventListener('error', handleError);
@@ -135,34 +141,97 @@ const ErrorBoundary: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   }, []);
 
   if (hasError) {
-    return (
-      <Card className="p-4 bg-red-900/50">
-        <div className="text-center text-red-400">
-          <AlertCircle className="w-8 h-8 mx-auto mb-2" />
-          <h3 className="font-bold">Game Error</h3>
-          <p className="text-sm text-red-300 mt-2">{errorDetails}</p>
-          <Button
-            variant="outline"
-            className="mt-4"
-            onClick={() => window.location.reload()}
-          >
-            <RefreshCcw className="w-4 h-4 mr-2" />
-            Restart Game
-          </Button>
-        </div>
-      </Card>
-    );
+    return <ErrorState message={errorDetails} />;
   }
 
   return <>{children}</>;
 };
 
-// Utility Components
+// Loading Component
+const LoadingState = () => (
+  <div className="container mx-auto p-4">
+    <Card className="bg-gray-900 p-4">
+      <div className="text-center text-white">
+        <RefreshCcw className="w-8 h-8 mx-auto animate-spin mb-2" />
+        <p>Loading game state...</p>
+      </div>
+    </Card>
+  </div>
+);
+
+// Error Component
+const ErrorState = ({ message }: { message: string }) => (
+  <div className="container mx-auto p-4">
+    <Card className="bg-gray-900 p-4">
+      <div className="text-center text-red-500">
+        <AlertCircle className="w-8 h-8 mx-auto mb-2" />
+        <h3 className="font-bold">Error</h3>
+        <p className="text-sm mt-2">{message}</p>
+      </div>
+    </Card>
+  </div>
+);
+
+// Round Timer Component
+const RoundTimer = React.memo<{
+  timeLeft: number;
+  phase: GamePhase;
+}>(({ timeLeft, phase }) => {
+  const formattedTime = useMemo(() => {
+    const minutes = Math.floor(timeLeft / 60);
+    const seconds = timeLeft % 60;
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  }, [timeLeft]);
+
+  return (
+    <div className="flex items-center space-x-2">
+      <Clock className="w-4 h-4" />
+      <span className={cn(
+        "font-mono",
+        phase === 'freezetime' && "text-yellow-400",
+        phase === 'live' && "text-green-400",
+        phase === 'over' && "text-red-400"
+      )}>
+        {formattedTime}
+      </span>
+    </div>
+  );
+});
+
+RoundTimer.displayName = 'RoundTimer';
+
+// Strategy Performance Component
+const StrategyPerformance = React.memo<{
+  strategy: string;
+  successRate: number;
+  roundsWon: number;
+  averageExecutionTime?: number;
+}>(({ strategy, successRate, roundsWon, averageExecutionTime }) => (
+  <div className="bg-gray-700 rounded p-2 mb-2">
+    <div className="flex justify-between items-center">
+      <span className="text-sm">{strategy}</span>
+      <div className="text-xs text-gray-400">
+        <span className="text-green-400">{roundsWon} wins</span>
+        {averageExecutionTime && (
+          <span className="ml-2">({averageExecutionTime}s avg)</span>
+        )}
+      </div>
+    </div>
+    <Progress 
+      value={successRate} 
+      className="h-1 mt-1"
+    />
+  </div>
+));
+
+StrategyPerformance.displayName = 'StrategyPerformance';
+
+// Team Score Component
 const TeamScore = React.memo<{
-  score?: Record<TeamSide, number>;
-  round?: number;
-  status?: GameStatus;
-}>(({ score = { t: 0, ct: 0 }, round = 1, status = 'active' }) => (
+  score: Record<TeamSide, number>;
+  round: number;
+  status: GameStatus;
+}>(({ score, round, status }) => (
   <Card className="bg-gray-800 p-4">
     <div className="text-center">
       <div className="text-3xl font-bold">
@@ -182,129 +251,70 @@ const TeamScore = React.memo<{
 
 TeamScore.displayName = 'TeamScore';
 
+// Agent Status Component
 const AgentStatus = React.memo<{
   agent: Agent;
-  showDetails?: boolean;
-}>(({ agent, showDetails = false }) => {
-  return (
-    <div className="flex items-center space-x-2 p-2 bg-gray-800 rounded">
-      <div className="flex-shrink-0">
-        <div className={cn(
-          "w-3 h-3 rounded-full",
-          agent.isAlive ? "bg-green-500" : "bg-red-500"
-        )} />
-      </div>
-      <div className="flex-grow">
-        <div className="text-sm font-medium">{agent.name}</div>
-        {showDetails && (
-          <div className="text-xs text-gray-400">
-            <span>HP: {agent.health}</span>
-            <span className="mx-1">|</span>
-            <span>$: {agent.money}</span>
-          </div>
-        )}
-      </div>
+  showDetails: boolean;
+}>(({ agent, showDetails }) => (
+  <div className="flex items-center space-x-2 p-2 bg-gray-800 rounded">
+    <div className="flex-shrink-0">
+      <div className={cn(
+        "w-3 h-3 rounded-full",
+        agent.isAlive ? "bg-green-500" : "bg-red-500"
+      )} />
+    </div>
+    <div className="flex-grow">
+      <div className="text-sm font-medium">{agent.name}</div>
       {showDetails && (
-        <div className="text-xs">
-          <div>K: {agent.matchStats.kills}</div>
-          <div>D: {agent.matchStats.deaths}</div>
-          <div>A: {agent.matchStats.assists}</div>
+        <div className="text-xs text-gray-400">
+          <span>HP: {agent.health}</span>
+          <span className="mx-1">|</span>
+          <span>$: {agent.money}</span>
         </div>
       )}
     </div>
-  );
-});
-
-AgentStatus.displayName = 'AgentStatus';
-
-const TeamOverview = React.memo<{
-  team: Team;
-  side: TeamSide;
-}>(({ team, side }) => {
-  return (
-    <div className="space-y-2">
-      <div className="flex justify-between items-center mb-2">
-        <h4 className="text-sm font-medium">
-          {side.toUpperCase()} Team
-        </h4>
-        <span className="text-sm text-gray-400">
-          ${team.money}
-        </span>
+    {showDetails && (
+      <div className="text-xs">
+        <div>K: {agent.matchStats.kills}</div>
+        <div>D: {agent.matchStats.deaths}</div>
+        <div>A: {agent.matchStats.assists}</div>
       </div>
-      <div className="space-y-1">
-        {team.agents.map(agent => (
-          <AgentStatus 
-            key={agent.id}
-            agent={agent}
-            showDetails
-          />
-        ))}
-      </div>
-    </div>
-  );
-});
-
-TeamOverview.displayName = 'TeamOverview';
-
-const RoundTimer = React.memo<{
-  timeLeft: number;
-  phase: GamePhase;
-}>(({ timeLeft, phase }) => {
-  const formattedTime = useMemo(() => {
-    const minutes = Math.floor(timeLeft / 60);
-    const seconds = timeLeft % 60;
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
-  }, [timeLeft]);
-
-  return (
-    <div className="text-center">
-      <div className="text-2xl font-bold">{formattedTime}</div>
-      <div className="text-sm text-gray-400">
-        {phase.charAt(0).toUpperCase() + phase.slice(1)}
-      </div>
-    </div>
-  );
-});
-
-RoundTimer.displayName = 'RoundTimer';
-
-const StrategyPerformance = React.memo<{
-  strategy: string;
-  successRate: number;
-  roundsWon: number;
-  averageExecutionTime?: number;
-}>(({ strategy, successRate, roundsWon, averageExecutionTime }) => (
-  <div className="bg-gray-800 rounded p-2 mt-2">
-    <div className="flex justify-between items-center mb-1">
-      <span className="text-sm text-gray-300">
-        {T_STRATEGIES[strategy as keyof typeof T_STRATEGIES] || 
-         CT_STRATEGIES[strategy as keyof typeof CT_STRATEGIES] || 
-         strategy}
-      </span>
-      <div className="flex items-center space-x-2">
-        <span className="text-sm text-green-400">{roundsWon} wins</span>
-        {averageExecutionTime && (
-          <span className="text-xs text-gray-400">
-            ({averageExecutionTime.toFixed(1)}s)
-          </span>
-        )}
-      </div>
-    </div>
-    <Progress 
-      value={successRate * 100} 
-      className="h-1"
-      indicatorClassName={cn(
-        successRate > 0.7 ? "bg-green-500" :
-        successRate > 0.4 ? "bg-yellow-500" :
-        "bg-red-500"
-      )}
-    />
+    )}
   </div>
 ));
 
-StrategyPerformance.displayName = 'StrategyPerformance';
+AgentStatus.displayName = 'AgentStatus';
 
-const StrategyPanel: React.FC<{
+// Team Overview Component
+const TeamOverview = React.memo<{
+  team: Team;
+  side: TeamSide;
+}>(({ team, side }) => (
+  <div className="space-y-2">
+    <div className="flex justify-between items-center mb-2">
+      <h4 className="text-sm font-medium">
+        {side.toUpperCase()} Team
+      </h4>
+      <span className="text-sm text-gray-400">
+        ${team.money}
+      </span>
+    </div>
+    <div className="space-y-1">
+      {team.agents.map(agent => (
+        <AgentStatus 
+          key={agent.id}
+          agent={agent}
+          showDetails={true}
+        />
+      ))}
+    </div>
+  </div>
+));
+
+TeamOverview.displayName = 'TeamOverview';
+
+// Strategy Panel Component
+const StrategyPanel = React.memo<{
   side: TeamSide;
   phase: GamePhase;
   currentStrategy: string;
@@ -312,34 +322,33 @@ const StrategyPanel: React.FC<{
   strategyStats: TeamStrategyStats;
   onStrategyChange: (strategy: string) => void;
   onMidRoundCall: (call: string) => void;
-  disabled?: boolean;
-}> = ({
-  side,
-  phase,
-  currentStrategy,
-  currentCall,
-  strategyStats,
-  onStrategyChange,
-  onMidRoundCall,
-  disabled = false
+  disabled: boolean;
+}>(({ 
+  side, 
+  phase, 
+  currentStrategy, 
+  currentCall, 
+  strategyStats, 
+  onStrategyChange, 
+  onMidRoundCall, 
+  disabled 
 }) => {
   const [isLoading, setIsLoading] = useState(false);
   const strategies = side === 't' ? T_STRATEGIES : CT_STRATEGIES;
-  
+
   const handleStrategyChange = useCallback(async (newStrategy: string) => {
     if (disabled || phase !== 'freezetime') return;
     
     setIsLoading(true);
     try {
       await onStrategyChange(newStrategy);
-      toast.success(`Strategy changed to ${strategies[newStrategy as StrategyKey]}`);
+      toast.success(`Strategy changed to ${strategies[newStrategy]}`);
     } catch (error) {
       toast.error('Failed to change strategy');
-      console.error('Strategy change error:', error);
     } finally {
       setIsLoading(false);
     }
-  }, [onStrategyChange, strategies, disabled, phase]);
+  }, [disabled, phase, onStrategyChange, strategies]);
 
   const handleMidRoundCall = useCallback(async (call: string) => {
     if (disabled || phase !== 'live') return;
@@ -347,20 +356,18 @@ const StrategyPanel: React.FC<{
     setIsLoading(true);
     try {
       await onMidRoundCall(call);
-      toast.success(`New call: ${MID_ROUND_CALLS[call as MidRoundCallKey]}`);
+      toast.success(`New call: ${MID_ROUND_CALLS[call]}`);
     } catch (error) {
       toast.error('Failed to make mid-round call');
-      console.error('Mid-round call error:', error);
     } finally {
       setIsLoading(false);
     }
-  }, [onMidRoundCall, disabled, phase]);
+  }, [disabled, phase, onMidRoundCall]);
 
   return (
     <Card className={cn(
       "bg-gray-800 p-4 mb-4",
-      (isLoading || disabled) && "opacity-50",
-      disabled && "cursor-not-allowed"
+      (isLoading || disabled) && "opacity-50"
     )}>
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold">
@@ -375,22 +382,29 @@ const StrategyPanel: React.FC<{
       </div>
 
       {phase === 'freezetime' && (
-        <Select
-          value={currentStrategy}
-          onValueChange={handleStrategyChange}
-          disabled={disabled}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder="Select strategy..." />
-          </SelectTrigger>
-          <SelectContent>
-            {Object.entries(strategies).map(([key, value]) => (
-              <SelectItem key={key} value={key}>
-                {value}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <>
+          <Select
+            value={currentStrategy}
+            onValueChange={handleStrategyChange}
+            disabled={disabled}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select strategy..." />
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(strategies).map(([key, value]) => (
+                <SelectItem key={key} value={key}>
+                  {value}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {currentStrategy && (
+            <p className="text-sm text-gray-400 mt-2">
+              {STRATEGY_DESCRIPTIONS[currentStrategy]}
+            </p>
+          )}
+        </>
       )}
 
       {phase === 'live' && (
@@ -424,8 +438,8 @@ const StrategyPanel: React.FC<{
             .map(([strat, wins]) => (
               <StrategyPerformance
                 key={strat}
-                strategy={strat}
-                successRate={wins / (strategyStats.roundsWonWithStrategy[strat] || 1)}
+                strategy={strategies[strat] || strat}
+                successRate={wins * 10}
                 roundsWon={wins}
                 averageExecutionTime={strategyStats.averageExecutionTime}
               />
@@ -434,10 +448,12 @@ const StrategyPanel: React.FC<{
       )}
     </Card>
   );
-};
+});
+
+StrategyPanel.displayName = 'StrategyPanel';
 
 // Main Component
-const MatchView = React.memo(() => {
+const MatchView = () => {
   const { state, controller } = useGame();
   const [isLoading, setIsLoading] = useState(true);
   const [showBuyMenu, setShowBuyMenu] = useState(false);
@@ -447,7 +463,6 @@ const MatchView = React.memo(() => {
       controller?.updateStrategy(side, strategy);
       toast.success(`Strategy updated for ${side.toUpperCase()}`);
     } catch (error) {
-      console.error('Error updating strategy:', error);
       toast.error('Failed to update strategy');
     }
   }, [controller]);
@@ -455,9 +470,8 @@ const MatchView = React.memo(() => {
   const handleMidRoundCall = useCallback((call: string) => {
     try {
       controller?.makeMidRoundCall(call);
-      toast.success(`Mid-round call: ${MID_ROUND_CALLS[call as MidRoundCallKey]}`);
+      toast.success(`Mid-round call: ${MID_ROUND_CALLS[call]}`);
     } catch (error) {
-      console.error('Error making mid-round call:', error);
       toast.error('Failed to make mid-round call');
     }
   }, [controller]);
@@ -482,42 +496,27 @@ const MatchView = React.memo(() => {
   }, [state, controller]);
 
   if (isLoading) {
-    return (
-      <div className="container mx-auto p-4">
-        <Card className="bg-gray-900 p-4">
-          <div className="text-center text-white">
-            <RefreshCcw className="w-8 h-8 mx-auto animate-spin mb-2" />
-            Loading game state...
-          </div>
-        </Card>
-      </div>
-    );
+    return <LoadingState />;
   }
 
-  if (!state || !state.match || !state.round || !state.teams) {
-    return (
-      <div className="container mx-auto p-4">
-        <Card className="bg-gray-900 p-4">
-          <div className="text-center text-red-500">
-            <AlertCircle className="w-8 h-8 mx-auto mb-2" />
-            Invalid Match State
-          </div>
-          <div className="text-center text-gray-400 mt-2">
-            Match state not properly initialized
-          </div>
-        </Card>
-      </div>
-    );
+  if (!state?.match || !state?.round || !state?.teams) {
+    return <ErrorState message="Invalid match state" />;
   }
 
   return (
     <ErrorBoundary>
       <div className="container mx-auto p-4 space-y-6">
-        <TeamScore
-          score={state.match.score}
-          round={state.match.currentRound}
-          status={state.match.status}
-        />
+        <div className="flex justify-between items-center">
+          <TeamScore
+            score={state.match.score}
+            round={state.match.currentRound}
+            status={state.match.status}
+          />
+          <RoundTimer
+            timeLeft={state.round.timeLeft}
+            phase={state.round.phase}
+          />
+        </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <StrategyPanel
@@ -548,42 +547,37 @@ const MatchView = React.memo(() => {
           <TeamOverview team={state.teams.ct} side="ct" />
         </div>
 
-        <RoundTimer
-          timeLeft={state.round.timeLeft}
-          phase={state.round.phase}
-        />
+        <Button
+          onClick={handleBuyMenuToggle}
+          className="w-full"
+          disabled={state.round.phase !== 'freezetime'}
+        >
+          <DollarSign className="w-4 h-4 mr-2" />
+          Toggle Buy Menu
+        </Button>
 
-        {showBuyMenu && (
-          <BuyMenu
-            team={state.teams.t}
-            onClose={() => setShowBuyMenu(false)}
+        <Suspense fallback={<LoadingState />}>
+          {showBuyMenu && (
+            <BuyMenu
+              team={state.teams.t}
+              onClose={() => setShowBuyMenu(false)}
+            />
+          )}
+
+          <GameRenderer
+            className="w-full h-[400px] bg-gray-900 rounded-lg"
           />
-        )}
 
-        <GameRenderer
-          gameState={state}
-          className="w-full h-[400px] bg-gray-900 rounded-lg"
-        />
-
-        {state.combatResult && (
-          <CombatVisualizer
-            result={state.combatResult}
-            onClose={handleCombatResultClose}
-          />
-        )}
+          {state.combatResult && (
+            <CombatVisualizer
+              result={state.combatResult}
+              onClose={handleCombatResultClose}
+            />
+          )}
+        </Suspense>
       </div>
     </ErrorBoundary>
   );
-});
-
-MatchView.displayName = 'MatchView';
-
-export default function GamePage() {
-  return (
-    <GameProvider>
-      <MatchView />
-    </GameProvider>
-  );
-}
+};
 
 export default MatchView;
