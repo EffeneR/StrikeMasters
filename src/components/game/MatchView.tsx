@@ -271,12 +271,12 @@ const TeamScore = React.memo<{
 
 TeamScore.displayName = 'TeamScore';
 
-const StrategyPerformance: React.FC<{
+const StrategyPerformance = React.memo<{
   strategy: string;
   successRate: number;
   roundsWon: number;
   averageExecutionTime?: number;
-}> = ({ strategy, successRate, roundsWon, averageExecutionTime }) => (
+}>(({ strategy, successRate, roundsWon, averageExecutionTime }) => (
   <div className="bg-gray-800 rounded p-2 mt-2">
     <div className="flex justify-between items-center mb-1">
       <span className="text-sm text-gray-300">
@@ -303,7 +303,10 @@ const StrategyPerformance: React.FC<{
       )}
     />
   </div>
-));
+))
+
+StrategyPerformance.displayName = 'StrategyPerformance';
+
 
 const StrategyPanel: React.FC<{
   side: TeamSide;
@@ -438,7 +441,7 @@ const StrategyPanel: React.FC<{
 };
 
 // Main Component
-const MatchView: React.FC = () => {
+const MatchView = React.memo(() => {
   const { gameState, updateStrategy, makeMidRoundCall } = useGame();
   const [showBuyMenu, setShowBuyMenu] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -589,12 +592,18 @@ const MatchView: React.FC = () => {
       </div>
     </ErrorBoundary>
   );
-};
+});
 
-export default function MatchViewWrapper() {
+MatchView.displayName = 'MatchView';
+
+const MatchViewWrapper = React.memo(() => {
   return (
     <ErrorBoundary>
       <MatchView />
     </ErrorBoundary>
   );
-}
+});
+
+MatchViewWrapper.displayName = 'MatchViewWrapper';
+
+export default MatchViewWrapper;

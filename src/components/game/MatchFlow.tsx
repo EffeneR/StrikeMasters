@@ -61,152 +61,8 @@ interface MatchFlowProps {
   onTimeUpdate: () => void;
   onStrategyChange: (team: 't' | 'ct', strategy: string) => void;
   onMidRoundCall: (team: 't' | 'ct', call: string) => void;
-}const MatchFlow: React.FC<MatchFlowProps> = ({
-  matchState,
-  onPhaseEnd,
-  onTimeUpdate,
-  onStrategyChange,
-  onMidRoundCall
-}) => {
-  const [lastPhase, setLastPhase] = useState(matchState.phase);
-  const [errorState, setErrorState] = useState<string | null>(null);
-  const handlePhaseChange = (phase: MatchState['phase']) => {
+}
 
-  useEffect(() => {
-    if (matchState.phase !== lastPhase) {
-      setLastPhase(matchState.phase);
-      handlePhaseChange(matchState.phase);
-    }
-  }, [matchState.phase, lastPhase, onPhaseEnd]);
-
-  const handlePhaseChange = (phase: string) => {
-    try {
-      onPhaseEnd();
-      if (phase === 'ended') {
-        toast.success('Round complete!');
-      }
-    } catch (error) {
-      setErrorState('Error handling phase change');
-      toast.error('Failed to process phase change');
-    }
-  };
-
-  const handleStrategySelect = (team: 't' | 'ct', strategy: string) => {
-    try {
-      if (matchState.phase !== 'freezetime') {
-        toast.error('Strategies can only be changed during freeze time');
-        return;
-      }
-      onStrategyChange(team, strategy);
-      toast.success(`Strategy updated: ${strategy}`);
-    } catch (error) {
-      setErrorState('Error updating strategy');
-      toast.error('Failed to update strategy');
-    }
-  };
-
-  const handleMidRoundCall = (team: 't' | 'ct', call: string) => {
-    try {
-      if (matchState.phase !== 'live') {
-        toast.error('Mid-round calls can only be made during live round');
-        return;
-      }
-      onMidRoundCall(team, call);
-      toast.success(`Mid-round call: ${call}`);
-    } catch (error) {
-      setErrorState('Error making mid-round call');
-      toast.error('Failed to make mid-round call');
-    }
-  };
-
-  const getTeamPerformanceStats = useMemo(() => (team: Team) => {
-    return {
-      averageUtilityUsage: team.agents.reduce((sum, agent) => 
-        sum + agent.strategyStats.utilityUsage, 0) / team.agents.length,
-      averagePositioning: team.agents.reduce((sum, agent) => 
-        sum + agent.strategyStats.positioningScore, 0) / team.agents.length,
-      averageAdherence: team.agents.reduce((sum, agent) => 
-        sum + agent.strategyStats.strategyAdherence, 0) / team.agents.length
-    };
-  }, []);
-
-  if (errorState) {
-    return (
-      <Card className="p-4 bg-red-900/50">
-        <div className="flex items-center gap-2 text-red-400">
-          <AlertCircle className="w-5 h-5" />
-          <span>Error: {errorState}</span>
-        </div>
-      </Card>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      <PhaseIndicator 
-        phase={matchState.phase} 
-        timeLeft={matchState.timeLeft} 
-      />
-
-      <TeamScore 
-        score={matchState.score} 
-        round={matchState.round} 
-      />
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* T Side Strategy */}
-        <StrategyOverview
-          team={matchState.teams.t}
-          strategy={matchState.currentStrategy.t}
-          phase={matchState.phase}
-          onStrategyChange={
-            (strategy) => handleStrategySelect('t', strategy)
-          }
-          onMidRoundCall={
-            (call) => handleMidRoundCall('t', call)
-          }
-        />
-
-        {/* CT Side Strategy */}
-        <StrategyOverview
-          team={matchState.teams.ct}
-          strategy={matchState.currentStrategy.ct}
-          phase={matchState.phase}
-          onStrategyChange={
-            (strategy) => handleStrategySelect('ct', strategy)
-          }
-          onMidRoundCall={
-            (call) => handleMidRoundCall('ct', call)
-          }
-        />
-      </div>
-
-      {/* Round Status */}
-      <Card className="bg-gray-800/50 backdrop-blur-sm p-4">
-        <div className="flex justify-between items-center">
-          <div className="flex items-center gap-2">
-            {matchState.phase === 'planted' ? (
-              <Trophy className="w-5 h-5 text-red-400" />
-            ) : (
-              <Timer className="w-5 h-5" />
-            )}
-            <span className="font-bold">
-              {PHASE_MESSAGES[matchState.phase]}
-            </span>
-          </div>
-          {matchState.activeCall && (
-            <div className="flex items-center gap-2 text-yellow-400">
-              <AlertCircle className="w-4 h-4" />
-              <span>Active Call: {matchState.activeCall}</span>
-            </div>
-          )}
-        </div>
-      </Card>
-    </div>
-  );
-};
-
-export default MatchFlow;
 // Constants
 const PHASE_MESSAGES: Record<string, string> = {
   warmup: "Prepare for the round",
@@ -329,7 +185,8 @@ const MidRoundCallButton: React.FC<{
       {call.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
     </Button>
   );
-}));
+});
+
 const AgentStatus: React.FC<{
   agent: Agent;
   className?: string;
@@ -411,14 +268,6 @@ const StrategyOverview: React.FC<{
     </div>
   </Card>
 ));
-// Utility function for calculating team performance
-const calculateTeamPerformance = (team: Team): number => {
-  if (!team.agents.length) return 0;
-  
-  return team.agents.reduce((sum, agent) => (
-    sum + (agent.strategyStats?.strategyAdherence || 0)
-  ), 0) / team.agents.length;
-};
 
 // Main MatchFlow component
 const MatchFlow: React.FC<MatchFlowProps> = ({
@@ -431,13 +280,12 @@ const MatchFlow: React.FC<MatchFlowProps> = ({
   const [lastPhase, setLastPhase] = useState(matchState.phase);
   const [errorState, setErrorState] = useState<string | null>(null);
 
-  // Monitor phase changes
   useEffect(() => {
     if (matchState.phase !== lastPhase) {
       setLastPhase(matchState.phase);
       handlePhaseChange(matchState.phase);
     }
-  }, [matchState.phase, lastPhase]);
+  }, [matchState.phase, lastPhase, onPhaseEnd]);
 
   const handlePhaseChange = (phase: string) => {
     try {
@@ -479,7 +327,6 @@ const MatchFlow: React.FC<MatchFlowProps> = ({
     }
   };
 
-  // Error state handling
   if (errorState) {
     return (
       <Card className="p-4 bg-red-900/50">
