@@ -564,4 +564,12 @@ const MatchView = React.memo(() => {
 
 MatchView.displayName = 'MatchView';
 
+export default function GamePage() {
+  return (
+    <GameProvider>
+      <MatchView />
+    </GameProvider>
+  );
+}
+
 export default MatchView;

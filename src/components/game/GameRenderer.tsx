@@ -1,106 +1,229 @@
 'use client';
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { Card } from '@/components/ui/card';
 import { useGame } from '@/components/game-provider';
 import { toast } from 'sonner';
 import { cn } from "@/lib/utils";
-import type { GameState, Position, Agent, GameEvent, Team } from '@/types/game';
+import type { GameState, Position, Agent, GameEvent } from '@/types/game';
 
-// Map constants
-const MAP_POSITIONS = {
-  // Sites
-  a_site: { x: 220, y: 80 },
-  b_site: { x: 70, y: 220 },
-  
-  // Key positions
-  t_spawn: { x: 60, y: 180 },
-  ct_spawn: { x: 230, y: 170 },
-  mid: { x: 150, y: 150 },
-  
-  // A side
-  long_doors: { x: 85, y: 80 },
-  catwalk: { x: 180, y: 120 },
-  goose: { x: 200, y: 90 },
-  car: { x: 240, y: 70 },
-  
-  // B side
-  upper_tunnels: { x: 80, y: 200 },
-  lower_tunnels: { x: 100, y: 220 },
-  b_platform: { x: 70, y: 220 },
-  
-  // Mid
-  t_mid: { x: 120, y: 150 },
-  window: { x: 150, y: 120 },
-  mid_doors: { x: 150, y: 150 },
-  xbox: { x: 130, y: 130 }
-} as const;
+// Constants and Interfaces
+const ROUND_TIME = 115; // 1:55 in seconds
+const BOMB_TIME = 40;
+const FREEZE_TIME = 15;
 
-const MAP_PATHS = {
-  long_doors: "M 80,50 L 150,50",
-  catwalk: "M 150,100 L 200,80",
-  mid_doors: "M 120,150 L 180,150",
-  tunnels: "M 80,200 L 150,200",
-  
-  // Strategy paths
-  rush_b: "M 60,180 Q 70,190 80,200 T 70,220",
-  split_a: "M 60,180 Q 85,80 180,120 M 60,180 Q 120,150 180,120",
-  mid_control: "M 60,180 Q 120,150 150,150 T 180,120"
-} as const;
-
-interface GameRendererProps {
-  className?: string;
-  gameState: GameState;
+interface MapPosition {
+  x: number;
+  y: number;
+  name: string;
+  type: 'site' | 'spawn' | 'position';
 }
 
-const AgentDot: React.FC<{ agent: Agent }> = ({ agent }) => {
+interface StrategyZone {
+  x: number;
+  y: number;
+  radius: number;
+  color: string;
+  name?: string;
+}
+
+interface TacticalLine {
+  path: string;
+  color: string;
+  name: string;
+}
+
+// Enhanced Map Constants
+const MAP_POSITIONS: Record<string, MapPosition> = {
+  // Sites
+  a_site: { x: 220, y: 80, name: 'A Site', type: 'site' },
+  b_site: { x: 70, y: 220, name: 'B Site', type: 'site' },
+  
+  // Spawns
+  t_spawn: { x: 60, y: 180, name: 'T Spawn', type: 'spawn' },
+  ct_spawn: { x: 230, y: 170, name: 'CT Spawn', type: 'spawn' },
+  
+  // Key positions
+  mid: { x: 150, y: 150, name: 'Mid', type: 'position' },
+  long_doors: { x: 85, y: 80, name: 'Long Doors', type: 'position' },
+  catwalk: { x: 180, y: 120, name: 'Catwalk', type: 'position' },
+  goose: { x: 200, y: 90, name: 'Goose', type: 'position' },
+  car: { x: 240, y: 70, name: 'Car', type: 'position' },
+  upper_tunnels: { x: 80, y: 200, name: 'Upper Tunnels', type: 'position' },
+  lower_tunnels: { x: 100, y: 220, name: 'Lower Tunnels', type: 'position' },
+  b_platform: { x: 70, y: 220, name: 'B Platform', type: 'position' },
+  t_mid: { x: 120, y: 150, name: 'T Mid', type: 'position' },
+  window: { x: 150, y: 120, name: 'Window', type: 'position' },
+  mid_doors: { x: 150, y: 150, name: 'Mid Doors', type: 'position' },
+  xbox: { x: 130, y: 130, name: 'Xbox', type: 'position' }
+} as const;
+
+// Enhanced Strategy Paths
+const STRATEGY_PATHS: Record<string, TacticalLine> = {
+  default_t: {
+    path: "M 60,180 L 120,150",
+    color: "#ffd700",
+    name: "Default T"
+  },
+  default_ct: {
+    path: "M 230,170 L 180,150",
+    color: "#4444ff",
+    name: "Default CT"
+  },
+  rush_b: {
+    path: "M 60,180 Q 70,190 80,200 T 70,220",
+    color: "#ff4444",
+    name: "Rush B"
+  },
+  split_a: {
+    path: "M 60,180 Q 85,80 180,120 M 60,180 Q 120,150 180,120",
+    color: "#4444ff",
+    name: "Split A"
+  },
+  mid_control: {
+    path: "M 60,180 Q 120,150 150,150 T 180,120",
+    color: "#44ff44",
+    name: "Mid Control"
+  },
+  long_push: {
+    path: "M 60,180 Q 70,130 85,80",
+    color: "#ff8800",
+    name: "Long Push"
+  },
+  b_retake: {
+    path: "M 230,170 Q 150,200 70,220",
+    color: "#00ffff",
+    name: "B Retake"
+  }
+};
+
+// Enhanced Strategy Zones
+const STRATEGY_ZONES: Record<string, StrategyZone[]> = {
+  rush_b: [
+    { x: 70, y: 220, radius: 30, color: "#ff4444", name: "Rush B Target" }
+  ],
+  split_a: [
+    { x: 85, y: 80, radius: 20, color: "#4444ff", name: "Long Control" },
+    { x: 180, y: 120, radius: 20, color: "#4444ff", name: "Catwalk Control" }
+  ],
+  mid_control: [
+    { x: 150, y: 150, radius: 25, color: "#44ff44", name: "Mid Control" }
+  ],
+  default_t: [
+    { x: 120, y: 150, radius: 15, color: "#ffd700", name: "Default Position" }
+  ],
+  default_ct: [
+    { x: 180, y: 150, radius: 15, color: "#4444ff", name: "Default Defense" }
+  ]
+};
+
+// Utility Functions
+const getRoleColor = (role: string): string => {
+  const roleColors = {
+    'Entry Fragger': '#ff4444',
+    'AWPer': '#4444ff',
+    'Support': '#44ff44',
+    'In-Game Leader': '#ffff44',
+    'Lurker': '#ff44ff'
+  };
+  return roleColors[role as keyof typeof roleColors] || '#ffffff';
+};
+
+const calculateHealthColor = (health: number): string => {
+  if (health <= 0) return '#666666';
+  const hue = Math.min(120, (health / 100) * 120);
+  return `hsl(${hue}, 100%, 50%)`;
+};
+
+// Component Definitions
+interface AgentDotProps {
+  agent: Agent;
+  isSelected?: boolean;
+  onClick?: (agent: Agent) => void;
+}
+
+const AgentDot: React.FC<AgentDotProps> = ({ 
+  agent, 
+  isSelected = false,
+  onClick 
+}) => {
   const position = agent.position || MAP_POSITIONS[`${agent.team}_spawn`];
   const color = agent.team === 't' ? '#ff4444' : '#4444ff';
   const glowColor = agent.team === 't' ? 'rgba(255,68,68,0.3)' : 'rgba(68,68,255,0.3)';
+  const healthColor = calculateHealthColor(agent.health || 0);
   
-  const healthColor = agent.health && agent.health > 0 
-    ? `hsl(${agent.health}, 100%, 50%)`
-    : '#666';
-  
+  const handleClick = useCallback(() => {
+    if (onClick && agent.isAlive) {
+      onClick(agent);
+    }
+  }, [agent, onClick]);
+
   return (
     <g 
       transform={`translate(${position.x}, ${position.y})`} 
-      className="transition-all duration-300"
+      className={cn(
+        "transition-all duration-300",
+        isSelected && "scale-125"
+      )}
       filter="url(#glow)"
+      onClick={handleClick}
+      style={{ cursor: agent.isAlive ? 'pointer' : 'default' }}
     >
-      {/* Health/Armor indicator */}
+      {/* Enhanced visualization components */}
       {agent.isAlive && (
-        <g className="health-indicator">
-          <rect
-            x="-10"
-            y="8"
-            width="20"
-            height="3"
-            fill="#333"
-            rx="1"
-          />
-          <rect
-            x="-10"
-            y="8"
-            width={`${(agent.health || 100) / 5}`}
-            height="3"
-            fill={healthColor}
-            rx="1"
-          />
-          {agent.armor && agent.armor > 0 && (
+        <>
+          {/* Health bar with gradient */}
+          <defs>
+            <linearGradient id={`health-${agent.id}`}>
+              <stop offset="0%" stopColor={healthColor} />
+              <stop offset="100%" stopColor={`${healthColor}88`} />
+            </linearGradient>
+          </defs>
+          
+          <g className="health-indicator">
             <rect
               x="-10"
-              y="12"
-              width={`${agent.armor / 5}`}
-              height="2"
-              fill="#4444ff"
+              y="8"
+              width="20"
+              height="3"
+              fill="#333"
               rx="1"
             />
-          )}
-        </g>
+            <rect
+              x="-10"
+              y="8"
+              width={`${(agent.health || 100) / 5}`}
+              height="3"
+              fill={`url(#health-${agent.id})`}
+              rx="1"
+            />
+            {agent.armor > 0 && (
+              <rect
+                x="-10"
+                y="12"
+                width={`${agent.armor / 5}`}
+                height="2"
+                fill="#4444ff"
+                rx="1"
+              />
+            )}
+          </g>
+          
+          {/* Equipment indicators */}
+          {agent.equipment?.map((item, index) => (
+            <circle
+              key={`${agent.id}-equip-${index}`}
+              r="2"
+              cy="-8"
+              cx={index * 5 - 5}
+              fill="#4ade80"
+              opacity="0.8"
+            />
+          ))}
+        </>
       )}
       
-      {/* Position indicator */}
+      {/* Base agent visualization */}
       <circle
         r="15"
         fill="none"
@@ -108,8 +231,6 @@ const AgentDot: React.FC<{ agent: Agent }> = ({ agent }) => {
         strokeWidth="2"
         opacity="0.5"
       />
-      
-      {/* Agent dot */}
       <circle 
         r="5" 
         fill={color}
@@ -117,18 +238,8 @@ const AgentDot: React.FC<{ agent: Agent }> = ({ agent }) => {
         strokeWidth="2"
         opacity={agent.isAlive ? 1 : 0.5}
       />
-
-      {/* Equipment indicators */}
-      {agent.isAlive && agent.equipment?.length > 0 && (
-        <circle
-          r="3"
-          cy="-8"
-          fill="#4ade80"
-          opacity="0.8"
-        />
-      )}
-
-      {/* Role-based indicator */}
+      
+      {/* Role indicator */}
       <circle
         r="2"
         cx="7"
@@ -136,7 +247,7 @@ const AgentDot: React.FC<{ agent: Agent }> = ({ agent }) => {
         opacity="0.8"
       />
       
-      {/* Agent name */}
+      {/* Name label */}
       <text 
         y="-10" 
         textAnchor="middle" 
@@ -150,147 +261,19 @@ const AgentDot: React.FC<{ agent: Agent }> = ({ agent }) => {
   );
 };
 
-const MapLayout: React.FC = () => (
-  <g className="map-layout">
-    {/* Sites with labels */}
-    <rect x="190" y="50" width="50" height="50" fill="#2a2a2a" opacity="0.5" />
-    <text x="215" y="85" fill="#fff" textAnchor="middle" fontSize="14" fontWeight="bold">A</text>
-    
-    <rect x="50" y="200" width="50" height="50" fill="#2a2a2a" opacity="0.5" />
-    <text x="75" y="235" fill="#fff" textAnchor="middle" fontSize="14" fontWeight="bold">B</text>
+// Main Component
+interface GameRendererProps {
+  className?: string;
+  onAgentSelect?: (agent: Agent) => void;
+  selectedAgent?: Agent | null;
+}
 
-    {/* Spawn areas */}
-    <rect x="30" y="160" width="40" height="30" fill="#444" opacity="0.5" />
-    <text x="50" y="180" fill="#ff4444" textAnchor="middle" fontSize="12">T</text>
-    
-    <rect x="220" y="160" width="40" height="30" fill="#444" opacity="0.5" />
-    <text x="240" y="180" fill="#4444ff" textAnchor="middle" fontSize="12">CT</text>
-
-    {/* Map paths */}
-    {Object.entries(MAP_PATHS).map(([key, path]) => (
-      <path 
-        key={key} 
-        d={path} 
-        stroke="#444"
-        strokeWidth="3"
-        fill="none"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        opacity="0.5"
-      />
-    ))}
-  </g>
-);
-
-const EventEffect: React.FC<{ event: GameEvent }> = ({ event }) => {
-  const [isVisible, setIsVisible] = useState(true);
-
-  useEffect(() => {
-    if (event.timestamp) {
-      const timeoutId = setTimeout(() => {
-        setIsVisible(false);
-      }, event.type === 'damage' ? 15000 : 5000);
-      
-      return () => clearTimeout(timeoutId);
-    }
-  }, [event]);
-
-  if (!isVisible) return null;
-
-  const position = event.location || { x: 0, y: 0 };
-
-  switch (event.type) {
-    case 'damage':
-      return (
-        <circle
-          cx={position.x}
-          cy={position.y}
-          r="15"
-          fill="#fff"
-          opacity="0.5"
-        >
-          <animate
-            attributeName="opacity"
-            from="0.5"
-            to="0"
-            dur="0.5s"
-            begin="0s"
-            fill="freeze"
-          />
-        </circle>
-      );
-    case 'kill':
-      return (
-        <g>
-          <circle
-            cx={position.x}
-            cy={position.y}
-            r="10"
-            fill="none"
-            stroke="#ff0000"
-            strokeWidth="2"
-            opacity="0.8"
-          >
-            <animate
-              attributeName="r"
-              from="5"
-              to="15"
-              dur="1s"
-              fill="freeze"
-            />
-            <animate
-              attributeName="opacity"
-              from="0.8"
-              to="0"
-              dur="1s"
-              fill="freeze"
-            />
-          </circle>
-          <text
-            x={position.x}
-            y={position.y - 20}
-            textAnchor="middle"
-            fill="#ff0000"
-            fontSize="14"
-            opacity="0.8"
-          >
-            ☠
-          </text>
-        </g>
-      );
-    default:
-      return null;
-  }
-};
-
-const getRoleColor = (role: string): string => {
-  switch (role) {
-    case 'Entry Fragger': return '#ff4444';
-    case 'AWPer': return '#4444ff';
-    case 'Support': return '#44ff44';
-    case 'In-Game Leader': return '#ffff44';
-    case 'Lurker': return '#ff44ff';
-    default: return '#ffffff';
-  }
-};
-
-const getStrategyZones = (strategy: string) => {
-  switch (strategy) {
-    case 'rush_b':
-      return [{ x: 70, y: 220, radius: 30, color: "#ff4444" }];
-    case 'split_a':
-      return [
-        { x: 85, y: 80, radius: 20, color: "#4444ff" },
-        { x: 180, y: 120, radius: 20, color: "#4444ff" }
-      ];
-    case 'mid_control':
-      return [{ x: 150, y: 150, radius: 25, color: "#44ff44" }];
-    default:
-      return [];
-  }
-};
-
-const GameRenderer: React.FC<GameRendererProps> = ({ className, gameState }) => {
+const GameRenderer: React.FC<GameRendererProps> = ({
+  className,
+  onAgentSelect,
+  selectedAgent
+}) => {
+  const { state: gameState } = useGame();
   const [positions, setPositions] = useState<Record<string, Position>>({});
   const [tacticalLines, setTacticalLines] = useState<string[]>([]);
 
@@ -299,6 +282,7 @@ const GameRenderer: React.FC<GameRendererProps> = ({ className, gameState }) => 
     return [...gameState.teams.t.agents, ...gameState.teams.ct.agents];
   }, [gameState?.teams]);
 
+  // Position updates
   useEffect(() => {
     try {
       const newPositions: Record<string, Position> = {};
@@ -314,18 +298,21 @@ const GameRenderer: React.FC<GameRendererProps> = ({ className, gameState }) => 
     }
   }, [allAgents]);
 
+  // Tactical line updates
   useEffect(() => {
+    if (!gameState?.round) return;
+
     try {
       const lines: string[] = [];
       if (gameState.round.phase === 'freezetime' || gameState.round.phase === 'live') {
         const tStrategy = gameState.round.currentStrategy.t;
         const ctStrategy = gameState.round.currentStrategy.ct;
         
-        if (tStrategy in MAP_PATHS) {
-          lines.push(MAP_PATHS[tStrategy as keyof typeof MAP_PATHS]);
+        if (tStrategy in STRATEGY_PATHS) {
+          lines.push(STRATEGY_PATHS[tStrategy].path);
         }
-        if (ctStrategy in MAP_PATHS) {
-          lines.push(MAP_PATHS[ctStrategy as keyof typeof MAP_PATHS]);
+        if (ctStrategy in STRATEGY_PATHS) {
+          lines.push(STRATEGY_PATHS[ctStrategy].path);
         }
       }
       setTacticalLines(lines);
@@ -333,7 +320,7 @@ const GameRenderer: React.FC<GameRendererProps> = ({ className, gameState }) => 
       console.error('Error updating tactical lines:', error);
       toast.error('Failed to update tactical lines');
     }
-  }, [gameState.round.currentStrategy, gameState.round.phase]);
+  }, [gameState?.round]);
 
   if (!gameState || !gameState.teams || !gameState.round) {
     return (
@@ -353,6 +340,7 @@ const GameRenderer: React.FC<GameRendererProps> = ({ className, gameState }) => 
         style={{ backgroundColor: '#1a1a1a' }}
         preserveAspectRatio="xMidYMid meet"
       >
+        {/* SVG Definitions */}
         <defs>
           <filter id="glow">
             <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
@@ -363,9 +351,10 @@ const GameRenderer: React.FC<GameRendererProps> = ({ className, gameState }) => 
           </filter>
         </defs>
 
+        {/* Map Elements */}
         <MapLayout />
 
-        {/* Tactical Lines */}
+        {/* Tactical Elements */}
         {tacticalLines.map((path, index) => (
           <path
             key={`tactical-${index}`}
@@ -382,81 +371,41 @@ const GameRenderer: React.FC<GameRendererProps> = ({ className, gameState }) => 
         {/* Strategy Zones */}
         {gameState.round.phase === 'live' && (
           <>
-            {getStrategyZones(gameState.round.currentStrategy.t).map((zone, i) => (
-              <circle
-                key={`t-zone-${i}`}
-                cx={zone.x}
-                cy={zone.y}
-                r={zone.radius}
-                fill={zone.color}
-                opacity="0.15"
-                className="animate-pulse"
-              />
-            ))}
-            {getStrategyZones(gameState.round.currentStrategy.ct).map((zone, i) => (
-              <circle
-                key={`ct-zone-${i}`}
-                cx={zone.x}
-                cy={zone.y}
-                r={zone.radius}
-                fill={zone.color}
-                opacity="0.15"
-                className="animate-pulse"
-              />
-            ))}
+            {Object.entries(STRATEGY_ZONES).map(([strategy, zones]) => 
+              zones.map((zone, i) => (
+                <circle
+                  key={`${strategy}-zone-${i}`}
+                  cx={zone.x}
+                  cy={zone.y}
+                  r={zone.radius}
+                  fill={zone.color}
+                  opacity="0.15"
+                  className="animate-pulse"
+                >
+                  <title>{zone.name}</title>
+                </circle>
+              ))
+            )}
           </>
         )}
 
-        {/* Events */}
+        {/* Game Events */}
         {gameState.events.map((event, i) => (
           <EventEffect key={`event-${i}`} event={event} />
         ))}
 
         {/* Agents */}
         {allAgents.map((agent) => (
-          <AgentDot key={agent.id} agent={agent} />
+          <AgentDot 
+            key={agent.id} 
+            agent={agent}
+            isSelected={selectedAgent?.id === agent.id}
+            onClick={onAgentSelect}
+          />
         ))}
 
-        {/* Round Timer */}
-        {gameState.round.phase !== 'ended' && (
-          <text
-            x="150"
-            y="40"
-            textAnchor="middle"
-            fill="#fff"
-            fontSize="20"
-            className="font-bold"
-          >
-            {Math.floor(gameState.round.timeLeft / 60)}:
-            {(gameState.round.timeLeft % 60).toString().padStart(2, '0')}
-          </text>
-        )}
-
-        {/* Strategy Labels */}
-        {gameState.round.phase === 'freezetime' && (
-          <>
-            <text
-              x="150"
-              y="20"
-              textAnchor="middle"
-              fill="#ffd700"
-              fontSize="14"
-              className="font-bold"
-            >
-              T: {gameState.round.currentStrategy.t.toUpperCase()}
-            </text>
-            <text
-              x="150"
-              y="60"
-              textAnchor="middle"
-              fill="#4444ff"
-              fontSize="14"
-              className="font-bold"
-            >
-              CT: {gameState.round.currentStrategy.ct.toUpperCase()}
-            </text>
-          </>
-        )}
+        {/* HUD Elements */}
+        <GameHUD gameState={gameState} />
       </svg>
     </Card>
   );

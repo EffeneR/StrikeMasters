@@ -161,6 +161,30 @@ export interface Strategy {
 }
 
 // Enhanced Match State
+
+export interface MatchState {
+  round: number;
+  phase: 'freezetime' | 'live' | 'over';
+  teams: {
+    t: {
+      score: number;
+      money: number;
+      players: Agent[];
+    };
+    ct: {
+      score: number;
+      money: number;
+      players: Agent[];
+    };
+  };
+  isMatchStarted: boolean;
+
+export interface Team {
+  score: number;
+  money: number;
+  players: Player[];
+}
+
 export interface MatchState {
   id: string;
   status: MatchStatus;

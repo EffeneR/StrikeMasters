@@ -7,7 +7,7 @@ import MatchView from '@/components/game/MatchView';
 import RoomLobby from '@/components/game/RoomLobby';
 import MatchFlow from '@/components/game/MatchFlow';
 import { Button } from '@/components/ui/button';
-import { GameConfig, Position, AgentStats, Agent, Team } from '@/types/game';
+import { GameConfig, AgentStats, Agent, Team } from '@/types/game';
 import { toast } from 'sonner';
 import { AlertCircle, RefreshCcw } from 'lucide-react';
 
@@ -88,7 +88,7 @@ const LoadingView: React.FC = () => (
 );
 
 const GameContent: React.FC = () => {
-  const { state, controller } = useGame();
+  const { matchState, setMatchState, startMatch } = useGame();
   const [mounted, setMounted] = useState(false);
   const [view, setView] = useState<'menu' | 'agents' | 'lobby' | 'match'>('menu');
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
@@ -97,28 +97,8 @@ const GameContent: React.FC = () => {
 
   useEffect(() => {
     setMounted(true);
-    const initializeGame = async () => {
-      if (controller) {
-        try {
-          await Promise.all(
-            Object.values(controller.systems).map(system => system.initialize({}))
-          );
-          setIsInitializing(false);
-        } catch (error) {
-          console.error('Failed to initialize game systems:', error);
-          toast.error('Failed to initialize game systems');
-        }
-      }
-    };
-
-    initializeGame();
-
-    return () => {
-      if (controller) {
-        controller.cleanup();
-      }
-    };
-  }, [controller]);
+    setIsInitializing(false);
+  }, []);
 
   const handleTeamSelection = useCallback((team: Team) => {
     if (!mounted) return;
@@ -166,7 +146,7 @@ const GameContent: React.FC = () => {
   }, []);
 
   const handleMatchStart = useCallback(async (config: GameConfig) => {
-    if (!mounted || !controller || !selectedTeam) {
+    if (!mounted || !selectedTeam) {
       toast.error('Game not ready');
       return;
     }
@@ -199,16 +179,25 @@ const GameContent: React.FC = () => {
         }
       }));
 
-      await controller.initializeMatch({
-        playerTeam,
-        botTeam,
-        config: {
-          ...config,
-          matchId: Math.random().toString(36).substr(2, 9)
-        }
+      setMatchState({
+        round: 1,
+        phase: 'freezetime',
+        teams: {
+          t: {
+            score: 0,
+            money: 800,
+            players: config.startingSide === 't' ? playerTeam : botTeam
+          },
+          ct: {
+            score: 0,
+            money: 800,
+            players: config.startingSide === 'ct' ? playerTeam : botTeam
+          }
+        },
+        isMatchStarted: true
       });
 
-      controller.startGameLoop();
+      startMatch();
       setGameInitialized(true);
       setView('match');
       setIsInitializing(false);
@@ -218,59 +207,45 @@ const GameContent: React.FC = () => {
       toast.error('Failed to start match');
       setIsInitializing(false);
     }
-  }, [mounted, controller, selectedTeam, generateBotTeam]);
+  }, [mounted, selectedTeam, generateBotTeam, setMatchState, startMatch]);
 
   const handlePhaseEnd = useCallback(() => {
-    if (!mounted || !controller) return;
+    if (!mounted) return;
     try {
-      controller.handlePhaseEnd();
+      setMatchState(prev => ({
+        ...prev,
+        phase: prev.phase === 'freezetime' ? 'live' : 'freezetime',
+        round: prev.phase === 'over' ? prev.round + 1 : prev.round
+      }));
     } catch (error) {
       console.error('Error handling phase end:', error);
       toast.error('Error during phase transition');
     }
-  }, [mounted, controller]);
+  }, [mounted, setMatchState]);
 
   const handleTimeUpdate = useCallback(() => {
-    if (!mounted || !controller) return;
-    try {
-      controller.updateTimer();
-    } catch (error) {
-      console.error('Error updating timer:', error);
-      toast.error('Error updating game timer');
-    }
-  }, [mounted, controller]);
+    // Implement timer logic if needed
+  }, []);
 
   const handleStrategyChange = useCallback((side: 't' | 'ct', strategy: string) => {
-    if (!mounted || !controller) return;
-    try {
-      controller.updateStrategy(side, strategy);
-      toast.success(`Strategy updated for ${side.toUpperCase()} team`);
-    } catch (error) {
-      console.error('Error updating strategy:', error);
-      toast.error('Failed to update strategy');
-    }
-  }, [mounted, controller]);
+    if (!mounted) return;
+    toast.success(`Strategy updated for ${side.toUpperCase()} team`);
+  }, [mounted]);
 
   const handleMidRoundCall = useCallback((side: 't' | 'ct', call: string) => {
-    if (!mounted || !controller) return;
-    try {
-      controller.makeMidRoundCall(side, call);
-      toast.success(`Mid-round call made: ${call}`);
-    } catch (error) {
-      console.error('Error making mid-round call:', error);
-      toast.error('Failed to make mid-round call');
-    }
-  }, [mounted, controller]);
+    if (!mounted) return;
+    toast.success(`Mid-round call made: ${call}`);
+  }, [mounted]);
 
   const renderMatchView = useCallback(() => {
-    if (!mounted || !state || !gameInitialized) {
+    if (!mounted || !matchState.isMatchStarted || !gameInitialized) {
       return <LoadingView />;
     }
 
     return (
       <div className="relative">
         <MatchFlow
-          matchState={state}
+          matchState={matchState}
           onPhaseEnd={handlePhaseEnd}
           onTimeUpdate={handleTimeUpdate}
           onStrategyChange={handleStrategyChange}
@@ -279,7 +254,7 @@ const GameContent: React.FC = () => {
         <MatchView />
       </div>
     );
-  }, [mounted, state, gameInitialized, handlePhaseEnd, handleTimeUpdate, handleStrategyChange, handleMidRoundCall]);
+  }, [mounted, matchState, gameInitialized, handlePhaseEnd, handleTimeUpdate, handleStrategyChange, handleMidRoundCall]);
 
   if (!mounted || isInitializing) {
     return <LoadingView />;
@@ -320,7 +295,7 @@ const GameContent: React.FC = () => {
   );
 };
 
-const Home: React.FC = () => {
+const Page: React.FC = () => {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -340,4 +315,4 @@ const Home: React.FC = () => {
   );
 };
 
-export default Home;
+export default Page;

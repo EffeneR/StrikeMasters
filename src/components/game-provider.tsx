@@ -205,6 +205,45 @@ export const GameProvider: React.FC<GameProviderProps> = ({
     ...initialState
   }));
 
+  export function GameProvider({ children }: { children: React.ReactNode }) {
+    const [matchState, setMatchState] = useState<MatchState>({
+      round: 1,
+      phase: 'freezetime',
+      teams: {
+        t: {
+          score: 0,
+          money: 800,
+          players: defaultTPlayers
+        },
+        ct: {
+          score: 0,
+          money: 800,
+          players: defaultCTPlayers
+        }
+      },
+      isMatchStarted: false
+    });
+  
+    const startMatch = useCallback(() => {
+      setMatchState(prev => ({
+        ...prev,
+        isMatchStarted: true
+      }));
+    }, []);
+  
+    const value = {
+      matchState,
+      setMatchState,
+      startMatch
+    };
+  
+    return (
+      <GameContext.Provider value={value}>
+        {children}
+      </GameContext.Provider>
+    );
+  }
+
   // Handle mounting
   useEffect(() => {
     setMounted(true);
