@@ -101,6 +101,11 @@ interface GameState {
     winner: 't' | 'ct' | null;
     startTime: number | null;
     endTime: number | null;
+    map: {
+      name: string;
+      areas: string[];
+      callouts: Record<string, any>;
+    };
   };
   round: {
     phase: 'warmup' | 'freezetime' | 'live' | 'planted' | 'ended';
@@ -115,6 +120,10 @@ interface GameState {
       ct: string;
     };
     activeCall: string | null;
+    momentum: {
+      team: 't' | 'ct' | null;
+      factor: number;
+    };
   };
   teams: {
     t: Team;
@@ -122,7 +131,13 @@ interface GameState {
   };
   events: GameEvent[];
   combatResult: CombatResult | null;
+  meta: {
+    version: string;
+    timestamp: number;
+    tickRate: number;
+  };
 }
+
 export default class GameController {
   private static instance: GameController | null = null;
   private state: GameState;
@@ -133,6 +148,7 @@ export default class GameController {
   private readonly updateThrottle: number = 16;
   private isProcessingUpdate: boolean = false;
   private debugMode: boolean = process.env.NODE_ENV === 'development';
+  private isBrowser: boolean = typeof window !== 'undefined';
 
   private systems: {
     combat: CombatSystem;
@@ -155,14 +171,17 @@ export default class GameController {
       throw new Error('Use GameController.getInstance() instead');
     }
 
-    this.systems = {
-      combat: new CombatSystem(),
-      movement: new MovementSystem(),
-      round: new RoundSystem(),
-      buy: new BuySystem(),
-      agent: new AgentSystem(),
-      tactics: new Dust2TacticsSystem()
-    };
+    // Initialize systems only if we're in the browser
+    if (this.isBrowser) {
+      this.systems = {
+        combat: new CombatSystem(),
+        movement: new MovementSystem(),
+        round: new RoundSystem(),
+        buy: new BuySystem(),
+        agent: new AgentSystem(),
+        tactics: new Dust2TacticsSystem()
+      };
+    }
 
     this.state = this.createInitialState();
     this.setupErrorHandlers();
@@ -176,7 +195,7 @@ export default class GameController {
   }
 
   private createInitialState(): GameState {
-    return {
+    const defaultState: GameState = {
       match: {
         id: '',
         status: 'pending',
@@ -222,53 +241,32 @@ export default class GameController {
         tickRate: 64
       }
     };
+
+    return defaultState;
   }
 
-  private createDefaultTeam(): Team {
-    return {
-      money: 800,
-      roundWins: 0,
-      lossBonus: 1400,
-      timeoutAvailable: true,
-      strategy: 'default',
-      agents: [],
-      strategyStats: {
-        roundsWonWithStrategy: {},
-        strategySuccessRate: 0,
-        lastSuccessfulStrategy: ''
-      }
-    };
-  }
+  public setState(newState: Partial<GameState>): void {
+    if (!this.isBrowser) return;
 
-  private setupErrorHandlers(): void {
-    // Check if code is running in browser environment
-    if (typeof window !== 'undefined') {
-      window.addEventListener('error', (event) => {
-        console.error('Game controller error:', event.error);
-        this.pauseMatch();
-        toast.error('Game error detected');
-      });
-    }
-}
-public setState(newState: Partial<GameState>): void {
-  try {
+    try {
       const timestamp = Date.now();
       if (timestamp - this.lastStateUpdate < this.updateThrottle) return;
 
-      this.state = { ...this.state, ...newState };
+      this.state = {
+        ...this.state,
+        ...newState,
+        meta: {
+          ...this.state.meta,
+          timestamp
+        }
+      };
+      
       this.lastStateUpdate = timestamp;
       this.notifyListeners();
-  } catch (error) {
+    } catch (error) {
       console.error('Error setting game state:', error);
       toast.error('Failed to update game state');
-  }
-}
-
-  public subscribe(listener: (state: GameState) => void): () => void {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
+    }
   }
 
   private notifyListeners(): void {
@@ -276,7 +274,7 @@ public setState(newState: Partial<GameState>): void {
     
     try {
       this.isProcessingUpdate = true;
-      const stateSnapshot = { ...this.state };
+      const stateSnapshot = JSON.parse(JSON.stringify(this.state)) as GameState;
       this.listeners.forEach(listener => {
         try {
           listener(stateSnapshot);
@@ -582,8 +580,23 @@ public setState(newState: Partial<GameState>): void {
   }
 
   public cleanup(): void {
+    if (!this.isBrowser) return;
+    
     this.stopGameLoop();
     this.listeners.clear();
     GameController.instance = null;
+  }
+
+  // Helper method to safely access teams
+  private getTeam(side: 't' | 'ct'): Team {
+    return this.state.teams[side];
+  }
+
+  // Helper method to safely update team state
+  private updateTeam(side: 't' | 'ct', updates: Partial<Team>): void {
+    this.state.teams[side] = {
+      ...this.state.teams[side],
+      ...updates
+    };
   }
 }
