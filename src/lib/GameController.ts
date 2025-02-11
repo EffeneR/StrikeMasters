@@ -180,16 +180,21 @@ export default class GameController {
       match: {
         id: '',
         status: 'pending',
-        currentRound: 0,
+        currentRound: 1,
         maxRounds: 30,
         score: { t: 0, ct: 0 },
         winner: null,
         startTime: null,
-        endTime: null
+        endTime: null,
+        map: {
+          name: 'de_dust2',
+          areas: ['A', 'B', 'Mid', 'T_Spawn', 'CT_Spawn'],
+          callouts: {}
+        }
       },
       round: {
         phase: 'warmup',
-        timeLeft: 0,
+        timeLeft: 15,
         bombPlanted: false,
         bombSite: null,
         plantTime: null,
@@ -199,14 +204,23 @@ export default class GameController {
           t: 'default',
           ct: 'default'
         },
-        activeCall: null
+        activeCall: null,
+        momentum: {
+          team: null,
+          factor: 0
+        }
       },
       teams: {
         t: this.createDefaultTeam(),
         ct: this.createDefaultTeam()
       },
       events: [],
-      combatResult: null
+      combatResult: null,
+      meta: {
+        version: '1.0.0',
+        timestamp: Date.now(),
+        tickRate: 64
+      }
     };
   }
 

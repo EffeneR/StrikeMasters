@@ -208,11 +208,13 @@ export const GameProvider: React.FC<GameProviderProps> = ({
   // Handle mounting
   useEffect(() => {
     setMounted(true);
-    const newController = new GameController();
+    const newController = GameController.getInstance(); // Use getInstance instead of new
     setController(newController);
-
+  
     return () => {
-      newController.stopGameLoop();
+      if (newController) {
+        newController.cleanup();
+      }
     };
   }, []);
 

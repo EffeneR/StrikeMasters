@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { GameProvider, useGame } from '@/components/game-provider';
 import AgentManager from '@/components/game/AgentManager';
 import MatchView from '@/components/game/MatchView';
@@ -9,6 +9,7 @@ import MatchFlow from '@/components/game/MatchFlow';
 import { Button } from '@/components/ui/button';
 import { GameConfig, Position, AgentStats, Agent, Team } from '@/types/game';
 import { toast } from 'sonner';
+import { AlertCircle, RefreshCcw } from 'lucide-react';
 
 const generateDefaultStats = (
   difficulty: number = 0.7,
@@ -45,29 +46,87 @@ const generateDefaultStats = (
   return stats;
 };
 
+const ErrorBoundary: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [hasError, setHasError] = useState(false);
+
+  useEffect(() => {
+    const handleError = (error: ErrorEvent) => {
+      console.error('Game Error:', error);
+      setHasError(true);
+      toast.error('An error occurred in the game');
+    };
+
+    window.addEventListener('error', handleError);
+    return () => window.removeEventListener('error', handleError);
+  }, []);
+
+  if (hasError) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-gray-900">
+        <AlertCircle className="w-12 h-12 text-red-500 mb-4" />
+        <h2 className="text-xl text-red-500 mb-4">Something went wrong</h2>
+        <Button 
+          onClick={() => window.location.reload()}
+          className="bg-blue-600 hover:bg-blue-700"
+        >
+          Restart Game
+        </Button>
+      </div>
+    );
+  }
+
+  return <>{children}</>;
+};
+
+const LoadingView: React.FC = () => (
+  <div className="flex justify-center items-center h-screen bg-gray-900">
+    <div className="text-center">
+      <RefreshCcw className="w-8 h-8 animate-spin mx-auto mb-4 text-blue-500" />
+      <p className="text-white">Loading game...</p>
+    </div>
+  </div>
+);
+
 const GameContent: React.FC = () => {
   const { state, controller } = useGame();
   const [mounted, setMounted] = useState(false);
   const [view, setView] = useState<'menu' | 'agents' | 'lobby' | 'match'>('menu');
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
   const [gameInitialized, setGameInitialized] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
 
   useEffect(() => {
     setMounted(true);
+    const initializeGame = async () => {
+      if (controller) {
+        try {
+          await Promise.all(
+            Object.values(controller.systems).map(system => system.initialize({}))
+          );
+          setIsInitializing(false);
+        } catch (error) {
+          console.error('Failed to initialize game systems:', error);
+          toast.error('Failed to initialize game systems');
+        }
+      }
+    };
+
+    initializeGame();
+
     return () => {
       if (controller) {
-        controller.stopGameLoop();
+        controller.cleanup();
       }
     };
   }, [controller]);
 
-  const handleTeamSelection = (team: Team) => {
+  const handleTeamSelection = useCallback((team: Team) => {
     if (!mounted) return;
     setSelectedTeam(team);
     setView('lobby');
-  };
+  }, [mounted]);
 
-  const generateBotTeam = (config: GameConfig): Agent[] => {
+  const generateBotTeam = useCallback((config: GameConfig): Agent[] => {
     const botSide = config.startingSide === 't' ? 'ct' : 't';
     const difficultyModifier = {
       'easy': 0.7,
@@ -104,15 +163,16 @@ const GameContent: React.FC = () => {
         impactRating: 0
       }
     }));
-  };
+  }, []);
 
-  const handleMatchStart = async (config: GameConfig) => {
+  const handleMatchStart = useCallback(async (config: GameConfig) => {
     if (!mounted || !controller || !selectedTeam) {
       toast.error('Game not ready');
       return;
     }
 
     try {
+      setIsInitializing(true);
       const botTeam = generateBotTeam(config);
       const playerTeam = selectedTeam.agents.map(agent => ({
         ...agent,
@@ -151,14 +211,16 @@ const GameContent: React.FC = () => {
       controller.startGameLoop();
       setGameInitialized(true);
       setView('match');
+      setIsInitializing(false);
       toast.success('Match started successfully');
     } catch (error) {
       console.error('Failed to initialize match:', error);
       toast.error('Failed to start match');
+      setIsInitializing(false);
     }
-  };
+  }, [mounted, controller, selectedTeam, generateBotTeam]);
 
-  const handlePhaseEnd = () => {
+  const handlePhaseEnd = useCallback(() => {
     if (!mounted || !controller) return;
     try {
       controller.handlePhaseEnd();
@@ -166,9 +228,9 @@ const GameContent: React.FC = () => {
       console.error('Error handling phase end:', error);
       toast.error('Error during phase transition');
     }
-  };
+  }, [mounted, controller]);
 
-  const handleTimeUpdate = () => {
+  const handleTimeUpdate = useCallback(() => {
     if (!mounted || !controller) return;
     try {
       controller.updateTimer();
@@ -176,9 +238,9 @@ const GameContent: React.FC = () => {
       console.error('Error updating timer:', error);
       toast.error('Error updating game timer');
     }
-  };
+  }, [mounted, controller]);
 
-  const handleStrategyChange = (side: 't' | 'ct', strategy: string) => {
+  const handleStrategyChange = useCallback((side: 't' | 'ct', strategy: string) => {
     if (!mounted || !controller) return;
     try {
       controller.updateStrategy(side, strategy);
@@ -187,9 +249,9 @@ const GameContent: React.FC = () => {
       console.error('Error updating strategy:', error);
       toast.error('Failed to update strategy');
     }
-  };
+  }, [mounted, controller]);
 
-  const handleMidRoundCall = (side: 't' | 'ct', call: string) => {
+  const handleMidRoundCall = useCallback((side: 't' | 'ct', call: string) => {
     if (!mounted || !controller) return;
     try {
       controller.makeMidRoundCall(side, call);
@@ -198,11 +260,11 @@ const GameContent: React.FC = () => {
       console.error('Error making mid-round call:', error);
       toast.error('Failed to make mid-round call');
     }
-  };
+  }, [mounted, controller]);
 
-  const renderMatchView = () => {
+  const renderMatchView = useCallback(() => {
     if (!mounted || !state || !gameInitialized) {
-      return <div className="flex justify-center items-center h-screen">Loading match...</div>;
+      return <LoadingView />;
     }
 
     return (
@@ -217,10 +279,10 @@ const GameContent: React.FC = () => {
         <MatchView />
       </div>
     );
-  };
+  }, [mounted, state, gameInitialized, handlePhaseEnd, handleTimeUpdate, handleStrategyChange, handleMidRoundCall]);
 
-  if (!mounted) {
-    return null;
+  if (!mounted || isInitializing) {
+    return <LoadingView />;
   }
 
   return (
@@ -266,13 +328,15 @@ const Home: React.FC = () => {
   }, []);
 
   if (!mounted) {
-    return null;
+    return <LoadingView />;
   }
 
   return (
-    <GameProvider>
-      <GameContent />
-    </GameProvider>
+    <ErrorBoundary>
+      <GameProvider>
+        <GameContent />
+      </GameProvider>
+    </ErrorBoundary>
   );
 };
 

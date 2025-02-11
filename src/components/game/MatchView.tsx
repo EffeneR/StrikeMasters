@@ -454,74 +454,49 @@ const StrategyPanel: React.FC<{
 
 // Main Component
 const MatchView = React.memo(() => {
-  const { gameState, updateStrategy, makeMidRoundCall } = useGame();
-  const [showBuyMenu, setShowBuyMenu] = useState(false);
+  const { state, controller } = useGame();
   const [isLoading, setIsLoading] = useState(true);
 
   const isValidGameState = (state: any): state is GameState => {
     return state && 
-           state.round && 
            state.match && 
+           state.round && 
            state.teams &&
-           typeof state.round.phase === 'string';
+           state.match.status &&
+           state.round.phase &&
+           state.teams.t &&
+           state.teams.ct;
   };
 
   useEffect(() => {
-    if (gameState) {
+    if (state && controller) {
       setIsLoading(false);
     }
-
-    return () => {
-      if (gameState?.match?.status === 'active') {
-        gameState.controller?.stopGameLoop?.();
-        gameState.controller?.unsubscribeAll?.();
-      }
-    };
-  }, [gameState]);
-
-  useEffect(() => {
-    if (!isValidGameState(gameState)) {
-      console.warn('Game state not properly initialized');
-      return;
-    }
-
-    try {
-      if (gameState.round.phase === 'freezetime') {
-        setShowBuyMenu(true);
-      } else {
-        setShowBuyMenu(false);
-      }
-    } catch (error) {
-      console.error('Error handling game phase:', error);
-      toast.error('Error updating game state');
-    }
-  }, [gameState?.round?.phase]);
-
-  const handleStrategyChange = useCallback(async (team: TeamSide, strategy: string) => {
-    try {
-      await updateStrategy(team, strategy);
-    } catch (error) {
-      console.error('Strategy update error:', error);
-      toast.error('Failed to update strategy');
-    }
-  }, [updateStrategy]);
-
-  const handleMidRoundCall = useCallback(async (call: string) => {
-    try {
-      await makeMidRoundCall(call);
-    } catch (error) {
-      console.error('Mid-round call error:', error);
-      toast.error('Failed to make mid-round call');
-    }
-  }, [makeMidRoundCall]);
+  }, [state, controller]);
 
   if (isLoading) {
     return (
       <div className="container mx-auto p-4">
-        <Card className="bg-gray-800 p-4">
+        <Card className="bg-gray-900 p-4">
           <div className="text-center text-white">
             <RefreshCcw className="w-8 h-8 mx-auto animate-spin mb-2" />
             Loading game state...
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!isValidGameState(state)) {
+    return (
+      <div className="container mx-auto p-4">
+        <Card className="bg-gray-900 p-4">
+          <div className="text-center text-red-500">
+            <AlertCircle className="w-8 h-8 mx-auto mb-2" />
+            Invalid Match State
+          </div>
+          <div className="text-center text-gray-400 mt-2">
+            Match state not properly initialized
           </div>
         </Card>
       </div>
