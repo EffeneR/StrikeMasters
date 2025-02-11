@@ -277,6 +277,19 @@ const MatchFlow: React.FC<MatchFlowProps> = ({
   onStrategyChange,
   onMidRoundCall
 }) => {
+
+  if (!matchState || !matchState.teams || !matchState.currentStrategy) {
+    return (
+      <Card className="p-4 bg-red-900/50">
+        <div className="text-center text-red-400">
+          <AlertCircle className="w-8 h-8 mx-auto mb-2" />
+          <h3 className="font-bold">Invalid Match State</h3>
+          <p className="text-sm text-red-300 mt-2">Match state not properly initialized</p>
+        </div>
+      </Card>
+    );
+  }
+  
   const [lastPhase, setLastPhase] = useState(matchState.phase);
   const [errorState, setErrorState] = useState<string | null>(null);
 
@@ -353,22 +366,21 @@ const MatchFlow: React.FC<MatchFlowProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* T Side Strategy */}
         <StrategyOverview
-          team={matchState.teams.t}
-          strategy={matchState.currentStrategy.t}
-          phase={matchState.phase}
-          onStrategyChange={(strategy) => handleStrategySelect('t', strategy)}
-          onMidRoundCall={(call) => handleMidRoundCall('t', call)}
-        />
-
-        {/* CT Side Strategy */}
-        <StrategyOverview
-          team={matchState.teams.ct}
-          strategy={matchState.currentStrategy.ct}
-          phase={matchState.phase}
-          onStrategyChange={(strategy) => handleStrategySelect('ct', strategy)}
-          onMidRoundCall={(call) => handleMidRoundCall('ct', call)}
-        />
-      </div>
+        team={matchState.teams?.t}
+        strategy={matchState.currentStrategy?.t || 'default'}
+        phase={matchState.phase}
+        onStrategyChange={(strategy) => handleStrategySelect('t', strategy)}
+        onMidRoundCall={(call) => handleMidRoundCall('t', call)}
+      />
+      
+      <StrategyOverview
+        team={matchState.teams?.ct}
+        strategy={matchState.currentStrategy?.ct || 'default'}
+        phase={matchState.phase}
+        onStrategyChange={(strategy) => handleStrategySelect('ct', strategy)}
+        onMidRoundCall={(call) => handleMidRoundCall('ct', call)}
+      />
+    </div>
 
       {/* Round Status */}
       <Card className="bg-gray-800/50 backdrop-blur-sm p-4">

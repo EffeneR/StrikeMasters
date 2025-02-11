@@ -117,7 +117,7 @@ const defaultGameState: GameState = {
     plantTime: null,
     winner: null,
     endReason: null,
-    currentStrategy: {
+    currentStrategy: {  // Ensure this is properly initialized
       t: 'default',
       ct: 'default'
     },

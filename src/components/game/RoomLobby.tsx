@@ -181,9 +181,9 @@ const RoomLobby: React.FC<RoomLobbyProps> = ({ playerTeam, onStart }) => {
       toast.error('Invalid team composition');
       return;
     }
-
+  
     setIsLoading(true);
-
+  
     try {
       const initializedPlayerTeam = playerTeam.agents.map(agent => ({
         ...agent,
@@ -193,6 +193,7 @@ const RoomLobby: React.FC<RoomLobbyProps> = ({ playerTeam, onStart }) => {
         armor: 0,
         weapons: [config.startingSide === 't' ? 'glock' : 'usp'],
         equipment: [],
+        isAlive: true,
         matchStats: {
           kills: 0,
           deaths: 0,
@@ -205,26 +206,29 @@ const RoomLobby: React.FC<RoomLobbyProps> = ({ playerTeam, onStart }) => {
           positioningScore: 0,
           strategyAdherence: 0,
           impactRating: 0
-        },
-        isAlive: true
+        }
       }));
-
+  
       const botTeam = generateBotTeam(config);
-
+  
       if (!botTeam.length) {
         throw new Error('Failed to generate bot team');
       }
-
+  
       await controller.initializeMatch({
         playerTeam: initializedPlayerTeam,
         botTeam,
         config: {
           ...config,
           startTime: Date.now(),
-          matchId: Math.random().toString(36).substr(2, 9)
+          matchId: Math.random().toString(36).substr(2, 9),
+          currentStrategy: {
+            t: config.startingSide === 't' ? config.initialStrategy : 'default',
+            ct: config.startingSide === 'ct' ? config.initialStrategy : 'default'
+          }
         }
       });
-
+  
       toast.success('Match initialized successfully');
       onStart(config);
     } catch (error) {
